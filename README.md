@@ -489,3 +489,6 @@ For issues and questions:
 - [ ] Elasticsearch integration
 - [ ] Advanced analytics dashboard
 - [ ] Kubernetes deployment configs
+
+
+sqlite3 data/crawler_rag.db "SELECT COUNT(*) FROM vector_embeddings;"

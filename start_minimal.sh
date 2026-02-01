@@ -1,9 +1,10 @@
 #!/bin/bash
-# MINIMAL SAFE MODE - Absolute bare minimum to start server
+# MINIMAL SAFE MODE - API Server only
 # Use this if system keeps hanging with start_safe.sh
+# This starts ONLY the API server, no background crawling
 
 echo "=========================================="
-echo "MINIMAL SAFE MODE"
+echo "MINIMAL SAFE MODE - API Server Only"
 echo "Starting with ABSOLUTE MINIMUM resources"
 echo "=========================================="
 

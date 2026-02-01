@@ -24,7 +24,6 @@ from app.api.routes import router
 from app.core.config import settings
 from app.core.logging import app_logger
 from app.core.database import init_db
-from app.services.scheduler import crawler_scheduler
 
 
 @asynccontextmanager
@@ -36,16 +35,12 @@ async def lifespan(app: FastAPI):
     # Initialize database
     init_db()
     
-    # Start background scheduler
-    crawler_scheduler.start()
-    
     app_logger.info("Application startup complete")
     
     yield
     
     # Shutdown
     app_logger.info("Shutting down Web Crawler RAG API")
-    crawler_scheduler.stop()
 
 
 # Create FastAPI app

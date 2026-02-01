@@ -118,8 +118,20 @@ class PDFProcessor:
             
             return '\n\n'.join(text_parts)
         
+        except ImportError:
+            app_logger.error("pdf2image not installed. Install with: pip install pdf2image")
+            return ""
         except Exception as e:
-            app_logger.error(f"OCR extraction failed: {e}")
+            error_msg = str(e)
+            if "poppler" in error_msg.lower() or "page count" in error_msg.lower():
+                app_logger.error(
+                    "Poppler not installed. OCR extraction failed. "
+                    "Install poppler-utils: "
+                    "Ubuntu/Debian: sudo apt-get install poppler-utils | "
+                    "macOS: brew install poppler"
+                )
+            else:
+                app_logger.error(f"OCR extraction failed: {e}")
             return ""
     
     def extract_text_by_page(self, pdf_data: bytes) -> dict:
