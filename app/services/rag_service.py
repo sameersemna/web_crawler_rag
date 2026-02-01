@@ -2,7 +2,7 @@
 RAG (Retrieval-Augmented Generation) Service
 Combines vector search with LLM for question answering
 """
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import datetime
 import time
 from app.services.vector_db import vector_db
@@ -38,11 +38,18 @@ class RAGService:
             provider = request.llm_provider or settings.default_llm_provider
             temperature = request.temperature or settings.llm_temperature
             
+            # Build filters for vector search
+            filters = self._build_filters(request.filters) if request.filters else None
+            
             # Search vector database
             app_logger.info(f"Processing query: {request.query[:50]}...")
+            if filters:
+                app_logger.info(f"Applied filters: {filters}")
+            
             search_results = self.vector_db.search(
                 query=request.query,
-                top_k=top_k
+                top_k=top_k,
+                filters=filters
             )
             
             if not search_results:
@@ -200,6 +207,58 @@ class RAGService:
         # and finding similar queries using embeddings
         # For now, return empty list
         return []
+    
+    def _build_filters(self, query_filters) -> Dict:
+        """
+        Build ChromaDB-compatible filters from QueryFilters
+        
+        Args:
+            query_filters: QueryFilters object from request
+            
+        Returns:
+            Dictionary of filters compatible with ChromaDB
+        """
+        filters = {}
+        conditions = []
+        
+        # Domain filter
+        if query_filters.domains:
+            if len(query_filters.domains) == 1:
+                conditions.append({"domain": {"$eq": query_filters.domains[0]}})
+            else:
+                conditions.append({"domain": {"$in": query_filters.domains}})
+        
+        # Language filter
+        if query_filters.language:
+            conditions.append({"language": {"$eq": query_filters.language}})
+        
+        # Content type filter
+        if query_filters.content_type:
+            if len(query_filters.content_type) == 1:
+                conditions.append({"content_type": {"$eq": query_filters.content_type[0]}})
+            else:
+                conditions.append({"content_type": {"$in": query_filters.content_type}})
+        
+        # Date range filters
+        if query_filters.crawled_after:
+            conditions.append({"crawled_at": {"$gte": query_filters.crawled_after.isoformat()}})
+        
+        if query_filters.crawled_before:
+            conditions.append({"crawled_at": {"$lte": query_filters.crawled_before.isoformat()}})
+        
+        # Tags filter
+        if query_filters.tags:
+            # Assuming tags are stored as an array in metadata
+            for tag in query_filters.tags:
+                conditions.append({"tags": {"$contains": tag}})
+        
+        # Combine all conditions with AND
+        if len(conditions) == 1:
+            filters = conditions[0]
+        elif len(conditions) > 1:
+            filters = {"$and": conditions}
+        
+        return filters if filters else None
 
 
 # Global RAG service instance

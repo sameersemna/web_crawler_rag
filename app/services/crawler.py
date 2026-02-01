@@ -219,6 +219,17 @@ class WebCrawler:
             
             try:
                 async with self.session.get(url) as response:
+                    # Get the final URL after redirects
+                    final_url = str(response.url)
+                    
+                    # If redirected to a different URL, update the URL we're processing
+                    if final_url != url:
+                        app_logger.info(f"Redirect: {url} -> {final_url}")
+                        url = final_url
+                        
+                        # Add redirected URL to visited set
+                        self.visited_urls.add(final_url)
+                    
                     content_type = response.headers.get("Content-Type", "").lower()
                     
                     # Handle PDF files
@@ -260,8 +271,8 @@ class WebCrawler:
                             size_bytes=len(html_content)
                         )
                         
-                        # Extract links for further crawling
-                        new_urls = self._extract_links(soup, base_url)
+                        # Extract links using the final URL as base (after redirects)
+                        new_urls = self._extract_links(soup, url)
                         
                         # Log the links found
                         app_logger.info(f"Extracted {len(new_urls)} links from {url}")

@@ -51,7 +51,7 @@ class Settings(BaseSettings):
         default="Mozilla/5.0 (compatible; WebCrawlerRAG/1.0)", 
         env="CRAWLER_USER_AGENT"
     )
-    max_crawl_depth: int = Field(default=2, env="MAX_CRAWL_DEPTH")
+    max_crawl_depth: int = Field(default=5, env="MAX_CRAWL_DEPTH")
     respect_robots_txt: bool = Field(default=True, env="RESPECT_ROBOTS_TXT")
     enable_sitemap_crawling: bool = Field(default=True, env="ENABLE_SITEMAP_CRAWLING")
     
