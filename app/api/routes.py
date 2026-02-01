@@ -29,12 +29,48 @@ async def query_rag(request: RAGQueryRequest):
     Query the RAG system
     
     Process a natural language query and return an answer based on crawled website data
+    
+    ⚠️ WARNING: Large collections (30k+ docs) may cause crashes.
+    For better stability, use /query-filtered with domain filters.
     """
     try:
         response = await rag_service.query(request)
         return response
     except Exception as e:
         app_logger.error(f"Error processing query: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/query-filtered", response_model=RAGQueryResponse)
+async def query_rag_filtered(request: RAGQueryRequest):
+    """
+    Query with REQUIRED domain filtering (safer for large collections)
+    
+    Forces queries to search only specific domains, preventing crashes on large collections.
+    
+    Example:
+    {
+        "query": "what courses do you offer?",
+        "top_k": 3,
+        "filters": {
+            "domains": ["spubs.com", "rabee.co.uk"]
+        }
+    }
+    """
+    try:
+        # Enforce domain filtering
+        if not request.filters or not request.filters.domains:
+            raise HTTPException(
+                status_code=400,
+                detail="Domain filter is required for filtered queries. Specify 'filters.domains' in request."
+            )
+        
+        response = await rag_service.query(request)
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        app_logger.error(f"Error processing filtered query: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

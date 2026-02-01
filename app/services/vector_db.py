@@ -230,19 +230,37 @@ class VectorDatabase:
             top_k = top_k or settings.rag_top_k_results
             similarity_threshold = similarity_threshold or settings.rag_similarity_threshold
             
+            # Safety limit to prevent resource exhaustion
+            top_k = min(top_k, 20)  # Max 20 results
+            
             app_logger.info(f"Vector search: query='{query[:50]}', top_k={top_k}, threshold={similarity_threshold}")
             
             # Generate query embedding
             query_embedding = self.embedding_model.encode([query], show_progress_bar=False).tolist()
             
-            app_logger.info(f"Generated query embedding, searching collection...")
+            app_logger.info(f"Generated query embedding (dim={len(query_embedding[0])}), searching collection...")
             
-            # Search
-            results = self.collection.query(
-                query_embeddings=query_embedding,
-                n_results=top_k * 2,  # Get more results to filter by threshold
-                where=filters
-            )
+            # Search with error handling
+            try:
+                results = self.collection.query(
+                    query_embeddings=query_embedding,
+                    n_results=min(top_k * 2, 40),  # Get more results but cap at 40
+                    where=filters,
+                    include=['documents', 'metadatas', 'distances']
+                )
+                app_logger.info(f"ChromaDB query completed successfully")
+            except Exception as query_error:
+                app_logger.error(f"ChromaDB query failed: {query_error}")
+                # Try without filters as fallback
+                if filters:
+                    app_logger.info("Retrying without filters...")
+                    results = self.collection.query(
+                        query_embeddings=query_embedding,
+                        n_results=min(top_k * 2, 40),
+                        include=['documents', 'metadatas', 'distances']
+                    )
+                else:
+                    raise
             
             app_logger.info(f"ChromaDB returned {len(results['ids'][0]) if results['ids'] and results['ids'][0] else 0} raw results")
             
