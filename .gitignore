@@ -64,7 +64,7 @@ htmlcov/
 dmypy.json
 
 # Models (if downloading locally)
-models/
+/models/
 *.pth
 *.pt
 *.onnx

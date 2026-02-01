@@ -1,0 +1,1436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Islamic Knowledge Assistant</title>
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', sans-serif;
+            background: #f8f9fa;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 0;
+            margin: 0;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        body.dark-theme {
+            background: #1a202c;
+            color: #e2e8f0;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 100%;
+            background: white;
+            border-radius: 0;
+            box-shadow: none;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            max-height: 100vh;
+            overflow: hidden;
+        }
+
+        body.dark-theme .container {
+            background: #2d3748;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px 30px;
+            border-radius: 0;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        body.dark-theme .header {
+            background: linear-gradient(135deg, #4c51bf 0%, #553c9a 100%);
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .settings-bar {
+            background: #f8f9fa;
+            padding: 15px 30px;
+            border-bottom: 1px solid #e9ecef;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        body.dark-theme .settings-bar {
+            background: #1a202c;
+            border-bottom-color: #4a5568;
+        }
+
+        .settings-bar label {
+            font-size: 13px;
+            color: #495057;
+            font-weight: 500;
+        }
+
+        body.dark-theme .settings-bar label {
+            color: #cbd5e0;
+        }
+
+        .settings-bar select {
+            padding: 6px 12px;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+            font-size: 13px;
+            flex: 1;
+            min-width: 120px;
+            cursor: pointer;
+            background: white;
+        }
+
+        body.dark-theme .settings-bar select {
+            background: #2d3748;
+            color: #e2e8f0;
+            border-color: #4a5568;
+        }
+
+        .domain-filter-container {
+            position: relative;
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .domain-filter-toggle {
+            padding: 6px 12px;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+            font-size: 13px;
+            background: white;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            user-select: none;
+        }
+
+        .domain-filter-toggle:hover {
+            background: #f8f9fa;
+        }
+
+        .domain-filter-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+            margin-top: 4px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 1000;
+            max-height: 300px;
+            overflow-y: auto;
+            display: none;
+        }
+
+        .domain-filter-dropdown.active {
+            display: block;
+        }
+
+        .domain-option {
+            padding: 10px 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .domain-option:hover {
+            background: #f8f9fa;
+        }
+
+        .domain-option input[type="checkbox"] {
+            cursor: pointer;
+        }
+
+        .domain-option label {
+            cursor: pointer;
+            flex: 1;
+            margin: 0;
+        }
+
+        .select-all-domains {
+            padding: 8px 12px;
+            border-bottom: 1px solid #e9ecef;
+            font-size: 12px;
+            color: #667eea;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .select-all-domains:hover {
+            background: #f8f9fa;
+        }
+
+        .domain-count {
+            background: #667eea;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .loading-domains {
+            padding: 10px 12px;
+            text-align: center;
+            color: #a0aec0;
+            font-size: 13px;
+        }
+
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 30px;
+            background: #f8f9fa;
+        }
+
+        body.dark-theme .chat-container {
+            background: #1a202c;
+        }
+
+        .message {
+            margin-bottom: 25px;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message.user {
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .message.assistant {
+            display: flex;
+            justify-content: flex-start;
+        }
+
+        .message-content {
+            max-width: 75%;
+            padding: 15px 20px;
+            border-radius: 18px;
+            position: relative;
+            word-wrap: break-word;
+        }
+
+        .message.user .message-content {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.assistant .message-content {
+            background: white;
+            color: #2d3748;
+            border: 1px solid #e2e8f0;
+            border-bottom-left-radius: 4px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+        }
+
+        body.dark-theme .message.assistant .message-content {
+            background: #2d3748;
+            color: #e2e8f0;
+            border-color: #4a5568;
+        }
+
+        .message-text {
+            line-height: 1.6;
+            font-size: 15px;
+        }
+
+        .sources {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #e2e8f0;
+        }
+
+        .sources-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #4a5568;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .sources-title::before {
+            content: "📚";
+        }
+
+        .source-item {
+            background: #f7fafc;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            border-radius: 8px;
+            font-size: 13px;
+            border-left: 3px solid #667eea;
+            transition: all 0.2s;
+        }
+
+        .source-item:hover {
+            background: #edf2f7;
+            transform: translateX(3px);
+        }
+
+        .source-url {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        .source-url:hover {
+            text-decoration: underline;
+        }
+
+        .source-snippet {
+            color: #718096;
+            font-size: 12px;
+            line-height: 1.5;
+            margin-top: 5px;
+            font-style: italic;
+        }
+
+        .source-score {
+            color: #48bb78;
+            font-weight: 600;
+            font-size: 11px;
+            margin-top: 4px;
+        }
+
+        .meta-info {
+            font-size: 11px;
+            color: #a0aec0;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #e2e8f0;
+        }
+
+        .input-container {
+            padding: 20px 30px;
+            background: white;
+            border-top: 1px solid #e2e8f0;
+            border-radius: 0;
+        }
+
+        body.dark-theme .input-container {
+            background: #2d3748;
+            border-top-color: #4a5568;
+        }
+
+        .context-container {
+            margin-bottom: 12px;
+            display: none;
+        }
+
+        .context-container.active {
+            display: block;
+        }
+
+        .context-label {
+            font-size: 12px;
+            color: #4a5568;
+            font-weight: 600;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        body.dark-theme .context-label {
+            color: #cbd5e0;
+        }
+
+        .context-toggle {
+            color: #667eea;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 500;
+            text-decoration: underline;
+        }
+
+        .context-toggle:hover {
+            color: #764ba2;
+        }
+
+        #contextInput {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 13px;
+            outline: none;
+            transition: all 0.2s;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 60px;
+        }
+
+        body.dark-theme #contextInput {
+            background: #1a202c;
+            color: #e2e8f0;
+            border-color: #4a5568;
+        }
+
+        #contextInput:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .advanced-settings-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 12px;
+        }
+
+        .settings-field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .settings-field label {
+            font-size: 12px;
+            color: #4a5568;
+            font-weight: 600;
+        }
+
+        body.dark-theme .settings-field label {
+            color: #cbd5e0;
+        }
+
+        .settings-field select,
+        .settings-field button {
+            padding: 8px 12px;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 13px;
+            background: white;
+            cursor: pointer;
+        }
+
+        body.dark-theme .settings-field select,
+        body.dark-theme .settings-field button {
+            background: #1a202c;
+            color: #e2e8f0;
+            border-color: #4a5568;
+        }
+
+        .settings-field button {
+            background: #e53e3e;
+            color: white;
+            border: none;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .settings-field button:hover {
+            background: #c53030;
+            transform: translateY(-1px);
+        }
+
+        body.dark-theme .settings-field button {
+            background: #fc8181;
+            color: #1a202c;
+        }
+
+        body.dark-theme .settings-field button:hover {
+            background: #f56565;
+        }
+
+        .input-wrapper {
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+        }
+
+        #userInput {
+            flex: 1;
+            padding: 14px 20px;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            font-size: 15px;
+            outline: none;
+            transition: all 0.2s;
+            font-family: inherit;
+            resize: none;
+            min-height: 52px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        body.dark-theme #userInput {
+            background: #1a202c;
+            color: #e2e8f0;
+            border-color: #4a5568;
+        }
+
+        #userInput:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        #sendButton {
+            padding: 14px 18px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 20px;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 4px 6px rgba(102, 126, 234, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 52px;
+            height: 52px;
+        }
+
+        #sendButton:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        #sendButton:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .context-show-toggle {
+            font-size: 12px;
+            color: #667eea;
+            cursor: pointer;
+            margin-bottom: 8px;
+            display: inline-block;
+            font-weight: 500;
+        }
+
+        .context-show-toggle:hover {
+            text-decoration: underline;
+        }
+
+        body.dark-theme .context-show-toggle {
+            color: #90cdf4;
+        }
+
+        body.dark-theme .domain-filter-toggle {
+            background: #1a202c;
+            color: #e2e8f0;
+            border-color: #4a5568;
+        }
+
+        body.dark-theme .domain-filter-toggle:hover {
+            background: #2d3748;
+        }
+
+        body.dark-theme .domain-filter-dropdown {
+            background: #2d3748;
+            border-color: #4a5568;
+        }
+
+        body.dark-theme .domain-option:hover {
+            background: #1a202c;
+        }
+
+        body.dark-theme .select-all-domains {
+            border-bottom-color: #4a5568;
+            color: #90cdf4;
+        }
+
+        body.dark-theme .select-all-domains:hover {
+            background: #1a202c;
+        }
+
+        body.dark-theme .source-item {
+            background: #1a202c;
+            border-left-color: #90cdf4;
+        }
+
+        body.dark-theme .source-item:hover {
+            background: #2d3748;
+        }
+
+        body.dark-theme .source-url {
+            color: #90cdf4;
+        }
+
+        body.dark-theme .source-snippet {
+            color: #a0aec0;
+        }
+
+        body.dark-theme .meta-info {
+            color: #718096;
+            border-top-color: #4a5568;
+        }
+
+        body.dark-theme .sources {
+            border-top-color: #4a5568;
+        }
+
+        body.dark-theme .error-message {
+            background: #742a2a;
+            color: #feb2b2;
+            border-left-color: #fc8181;
+        }
+
+        body.dark-theme .empty-state {
+            color: #718096;
+        }
+
+        body.dark-theme .empty-state h2 {
+            color: #cbd5e0;
+        }
+
+        .typing-indicator {
+            display: none;
+            padding: 15px 20px;
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 18px;
+            border-bottom-left-radius: 4px;
+            max-width: 75px;
+        }
+
+        .typing-indicator.active {
+            display: inline-block;
+        }
+
+        .typing-dots {
+            display: flex;
+            gap: 4px;
+            align-items: center;
+        }
+
+        .typing-dots span {
+            width: 8px;
+            height: 8px;
+            background: #cbd5e0;
+            border-radius: 50%;
+            animation: typing 1.4s infinite;
+        }
+
+        .typing-dots span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .typing-dots span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes typing {
+            0%, 60%, 100% {
+                transform: translateY(0);
+                background: #cbd5e0;
+            }
+            30% {
+                transform: translateY(-10px);
+                background: #667eea;
+            }
+        }
+
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #a0aec0;
+            text-align: center;
+        }
+
+        .empty-state-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+
+        .empty-state h2 {
+            font-size: 24px;
+            color: #4a5568;
+            margin-bottom: 10px;
+        }
+
+        .empty-state p {
+            font-size: 15px;
+            max-width: 400px;
+        }
+
+        .error-message {
+            background: #fed7d7;
+            color: #c53030;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 14px;
+            border-left: 4px solid #fc8181;
+        }
+
+        /* Scrollbar styling */
+        .chat-container::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .chat-container::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+
+        .chat-container::-webkit-scrollbar-thumb {
+            background: #cbd5e0;
+            border-radius: 4px;
+        }
+
+        .chat-container::-webkit-scrollbar-thumb:hover {
+            background: #a0aec0;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                height: 100vh;
+                max-height: 100vh;
+                border-radius: 0;
+            }
+
+            .header {
+                border-radius: 0;
+            }
+
+            .input-container {
+                border-radius: 0;
+            }
+
+            .message-content {
+                max-width: 85%;
+            }
+
+            .settings-bar {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .settings-bar input[type="text"],
+            .settings-bar select {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🕌 Islamic Knowledge Assistant</h1>
+            <p>Ask questions and get answers from trusted Islamic sources</p>
+        </div>
+
+        <div class="settings-bar">
+            <label>Filter Domains:</label>
+            <div class="domain-filter-container">
+                <div class="domain-filter-toggle" id="domainFilterToggle">
+                    <span id="domainFilterText">All Domains</span>
+                    <span class="domain-count" id="domainCount">0</span>
+                </div>
+                <div class="domain-filter-dropdown" id="domainFilterDropdown">
+                    <div class="select-all-domains" id="selectAllDomains">
+                        ✓ Select All
+                    </div>
+                    <div id="domainOptions">
+                        <div class="loading-domains">Loading domains...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="chat-container" id="chatContainer">
+            <div class="empty-state">
+                <div class="empty-state-icon">💬</div>
+                <h2>Welcome!</h2>
+                <p>Start asking questions about Islam and get detailed answers with authentic sources.</p>
+            </div>
+        </div>
+
+        <div class="input-container">
+            <span class="context-show-toggle" id="contextShowToggle">⚙️ Advanced Settings</span>
+            <div class="context-container" id="contextContainer">
+                <div class="advanced-settings-row">
+                    <div class="settings-field">
+                        <label for="themeSelect">Theme</label>
+                        <select id="themeSelect">
+                            <option value="system">System</option>
+                            <option value="light">Light</option>
+                            <option value="dark">Dark</option>
+                        </select>
+                    </div>
+                    <div class="settings-field">
+                        <label for="llmProvider">LLM Provider</label>
+                        <select id="llmProvider">
+                            <option value="gemini">Gemini</option>
+                            <option value="deepseek">DeepSeek</option>
+                        </select>
+                    </div>
+                    <div class="settings-field">
+                        <label for="topK">Results Count</label>
+                        <select id="topK">
+                            <option value="3">3</option>
+                            <option value="5">5</option>
+                            <option value="10">10</option>
+                        </select>
+                    </div>
+                    <div class="settings-field">
+                        <label>&nbsp;</label>
+                        <button id="clearHistoryBtn">🗑️ Clear History</button>
+                    </div>
+                </div>
+                <div class="context-label">
+                    Context Instructions
+                </div>
+                <textarea 
+                    id="contextInput" 
+                    placeholder="Additional context or instructions for the AI..."
+                >Get answer to asked query and mention the exact sources links</textarea>
+            </div>
+            <div class="input-wrapper">
+                <textarea 
+                    id="userInput" 
+                    placeholder="Ask a question about Islam..."
+                    rows="1"
+                ></textarea>
+                <button id="sendButton" title="Send message (Enter)">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="22" y1="2" x2="11" y2="13"></line>
+                        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        $(document).ready(function() {
+            const API_URL = 'http://85.9.220.193:8000/api/v1/query';
+            const CSV_PATH = './domains.csv';
+            const STORAGE_KEY = 'islamic_chat_history';
+            const HISTORY_KEY = 'islamic_query_history';
+            const SETTINGS_KEY = 'islamic_chat_settings';
+            
+            let isProcessing = false;
+            let availableDomains = [];
+            let selectedDomains = [];
+            let messageHistory = [];
+            let historyIndex = -1;
+            let currentInput = '';
+
+            // Default settings
+            const defaultSettings = {
+                theme: 'system',
+                llmProvider: 'gemini',
+                topK: 5,
+                contextExpanded: false
+            };
+
+            // Load settings from localStorage
+            function loadSettings() {
+                try {
+                    const saved = localStorage.getItem(SETTINGS_KEY);
+                    if (saved) {
+                        return { ...defaultSettings, ...JSON.parse(saved) };
+                    }
+                } catch (e) {
+                    console.error('Error loading settings:', e);
+                }
+                return defaultSettings;
+            }
+
+            // Save settings to localStorage
+            function saveSettings() {
+                try {
+                    const settings = {
+                        theme: $('#themeSelect').val(),
+                        llmProvider: $('#llmProvider').val(),
+                        topK: parseInt($('#topK').val()),
+                        contextExpanded: $('#contextContainer').hasClass('active')
+                    };
+                    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+                } catch (e) {
+                    console.error('Error saving settings:', e);
+                }
+            }
+
+            // Apply theme
+            function applyTheme(theme) {
+                if (theme === 'system') {
+                    // Check system preference
+                    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                        $('body').addClass('dark-theme');
+                    } else {
+                        $('body').removeClass('dark-theme');
+                    }
+                } else if (theme === 'dark') {
+                    $('body').addClass('dark-theme');
+                } else {
+                    $('body').removeClass('dark-theme');
+                }
+            }
+
+            // Initialize settings
+            const savedSettings = loadSettings();
+            $('#themeSelect').val(savedSettings.theme);
+            $('#llmProvider').val(savedSettings.llmProvider);
+            $('#topK').val(savedSettings.topK);
+            applyTheme(savedSettings.theme);
+            
+            if (savedSettings.contextExpanded) {
+                $('#contextContainer').addClass('active');
+                $('#contextShowToggle').text('⚙️ Hide Settings');
+            }
+
+            // Theme change handler
+            $('#themeSelect').on('change', function() {
+                applyTheme($(this).val());
+                saveSettings();
+            });
+
+            // Save settings on change
+            $('#llmProvider, #topK').on('change', saveSettings);
+
+            // Listen to system theme changes
+            if (window.matchMedia) {
+                window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+                    if ($('#themeSelect').val() === 'system') {
+                        applyTheme('system');
+                    }
+                });
+            }
+
+            // Load chat history from localStorage
+            function loadChatHistory() {
+                try {
+                    const saved = localStorage.getItem(STORAGE_KEY);
+                    if (saved) {
+                        const history = JSON.parse(saved);
+                        history.forEach(msg => {
+                            if (msg.type === 'user') {
+                                addUserMessage(msg.text, false);
+                            } else if (msg.type === 'assistant') {
+                                addAssistantMessage(msg.data, false);
+                            } else if (msg.type === 'error') {
+                                showError(msg.text, false);
+                            }
+                        });
+                        
+                        if (history.length > 0) {
+                            removeEmptyState();
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error loading chat history:', e);
+                }
+            }
+
+            // Save chat history to localStorage
+            function saveChatHistory() {
+                try {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(messageHistory));
+                } catch (e) {
+                    console.error('Error saving chat history:', e);
+                }
+            }
+
+            // Load query history from localStorage
+            function loadQueryHistory() {
+                try {
+                    const saved = localStorage.getItem(HISTORY_KEY);
+                    if (saved) {
+                        return JSON.parse(saved);
+                    }
+                } catch (e) {
+                    console.error('Error loading query history:', e);
+                }
+                return [];
+            }
+
+            // Save query history to localStorage
+            function saveQueryHistory(queries) {
+                try {
+                    // Keep only last 50 queries
+                    const limited = queries.slice(-50);
+                    localStorage.setItem(HISTORY_KEY, JSON.stringify(limited));
+                } catch (e) {
+                    console.error('Error saving query history:', e);
+                }
+            }
+
+            let queryHistory = loadQueryHistory();
+
+            // Load domains from CSV
+            async function loadDomains() {
+                try {
+                    const response = await $.ajax({
+                        url: CSV_PATH,
+                        dataType: 'text'
+                    });
+
+                    // Parse CSV
+                    const lines = response.split('\n');
+                    const domains = [];
+                    
+                    // Skip header (first line)
+                    for (let i = 1; i < lines.length; i++) {
+                        const domain = lines[i].trim();
+                        if (domain) {
+                            domains.push(domain);
+                        }
+                    }
+
+                    availableDomains = domains;
+                    selectedDomains = [...domains]; // Select all by default
+                    renderDomainOptions();
+                    updateDomainFilterText();
+
+                } catch (error) {
+                    console.error('Error loading domains:', error);
+                    $('#domainOptions').html('<div class="loading-domains" style="color: #e53e3e;">Failed to load domains</div>');
+                }
+            }
+
+            // Render domain checkboxes
+            function renderDomainOptions() {
+                const optionsHtml = availableDomains.map(domain => `
+                    <div class="domain-option">
+                        <input 
+                            type="checkbox" 
+                            id="domain-${domain.replace(/\./g, '-')}" 
+                            value="${domain}"
+                            ${selectedDomains.includes(domain) ? 'checked' : ''}
+                        >
+                        <label for="domain-${domain.replace(/\./g, '-')}">${domain}</label>
+                    </div>
+                `).join('');
+
+                $('#domainOptions').html(optionsHtml);
+
+                // Add event listeners
+                $('#domainOptions input[type="checkbox"]').on('change', function() {
+                    const domain = $(this).val();
+                    if ($(this).is(':checked')) {
+                        if (!selectedDomains.includes(domain)) {
+                            selectedDomains.push(domain);
+                        }
+                    } else {
+                        selectedDomains = selectedDomains.filter(d => d !== domain);
+                    }
+                    updateDomainFilterText();
+                });
+            }
+
+            // Update domain filter display text
+            function updateDomainFilterText() {
+                const count = selectedDomains.length;
+                $('#domainCount').text(count);
+
+                if (count === 0) {
+                    $('#domainFilterText').text('All Domains (No Filter)');
+                } else if (count === availableDomains.length) {
+                    $('#domainFilterText').text('All Domains');
+                } else if (count === 1) {
+                    $('#domainFilterText').text(selectedDomains[0]);
+                } else {
+                    $('#domainFilterText').text(`${count} domains selected`);
+                }
+            }
+
+            // Toggle domain dropdown
+            $('#domainFilterToggle').on('click', function(e) {
+                e.stopPropagation();
+                $('#domainFilterDropdown').toggleClass('active');
+            });
+
+            // Select/Deselect all domains
+            $('#selectAllDomains').on('click', function() {
+                const allSelected = selectedDomains.length === availableDomains.length;
+                
+                if (allSelected) {
+                    selectedDomains = [];
+                    $(this).text('☐ Select All');
+                } else {
+                    selectedDomains = [...availableDomains];
+                    $(this).text('✓ Select All');
+                }
+                
+                renderDomainOptions();
+                updateDomainFilterText();
+            });
+
+            // Toggle context container
+            $('#contextShowToggle').on('click', function() {
+                $('#contextContainer').toggleClass('active');
+                if ($('#contextContainer').hasClass('active')) {
+                    $(this).text('⚙️ Hide Settings');
+                } else {
+                    $(this).text('⚙️ Advanced Settings');
+                }
+                saveSettings();
+            });
+
+            // Clear history button
+            $('#clearHistoryBtn').on('click', function() {
+                if (confirm('Are you sure you want to clear all chat history? This cannot be undone.')) {
+                    localStorage.removeItem(STORAGE_KEY);
+                    localStorage.removeItem(HISTORY_KEY);
+                    messageHistory = [];
+                    queryHistory = [];
+                    historyIndex = -1;
+                    $('#chatContainer').html(`
+                        <div class="empty-state">
+                            <div class="empty-state-icon">💬</div>
+                            <h2>Welcome!</h2>
+                            <p>Start asking questions about Islam and get detailed answers with authentic sources.</p>
+                        </div>
+                    `);
+                }
+            });
+
+            // Close dropdown when clicking outside
+            $(document).on('click', function(e) {
+                if (!$(e.target).closest('.domain-filter-container').length) {
+                    $('#domainFilterDropdown').removeClass('active');
+                }
+            });
+
+            // Prevent dropdown close when clicking inside
+            $('#domainFilterDropdown').on('click', function(e) {
+                e.stopPropagation();
+            });
+
+            // Remove empty state on first message
+            function removeEmptyState() {
+                $('.empty-state').fadeOut(300, function() {
+                    $(this).remove();
+                });
+            }
+
+            // Add user message to chat
+            function addUserMessage(message, save = true) {
+                removeEmptyState();
+                
+                const messageHtml = `
+                    <div class="message user">
+                        <div class="message-content">
+                            <div class="message-text">${escapeHtml(message)}</div>
+                        </div>
+                    </div>
+                `;
+                $('#chatContainer').append(messageHtml);
+                scrollToBottom();
+
+                if (save) {
+                    messageHistory.push({ type: 'user', text: message });
+                    saveChatHistory();
+                }
+            }
+
+            // Add assistant message to chat
+            function addAssistantMessage(data, save = true) {
+                const sourcesHtml = data.sources.map((source, index) => {
+                    // Create URL with text fragment for highlighting
+                    let highlightUrl = source.url;
+                    if (source.highlighted_text) {
+                        // Encode the text for URL fragment
+                        const textToHighlight = source.highlighted_text.substring(0, 50);
+                        highlightUrl = `${source.url}#:~:text=${encodeURIComponent(textToHighlight)}`;
+                    }
+                    
+                    return `
+                        <div class="source-item">
+                            <a href="${highlightUrl}" target="_blank" class="source-url" title="Click to view source with highlighted text">
+                                ${index + 1}. ${source.domain}
+                            </a>
+                            <div class="source-snippet">"${source.highlighted_text || source.snippet.substring(0, 100)}..."</div>
+                            <div class="source-score">Relevance: ${(source.similarity_score * 100).toFixed(1)}%</div>
+                        </div>
+                    `;
+                }).join('');
+
+                const messageHtml = `
+                    <div class="message assistant">
+                        <div class="message-content">
+                            <div class="message-text">${formatText(data.answer)}</div>
+                            ${data.sources.length > 0 ? `
+                                <div class="sources">
+                                    <div class="sources-title">Sources (${data.sources.length})</div>
+                                    ${sourcesHtml}
+                                </div>
+                            ` : ''}
+                            <div class="meta-info">
+                                Provider: ${data.llm_provider} | 
+                                Confidence: ${(data.confidence_score * 100).toFixed(1)}% | 
+                                Time: ${data.processing_time_ms.toFixed(0)}ms
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                $('#chatContainer').append(messageHtml);
+                scrollToBottom();
+
+                if (save) {
+                    messageHistory.push({ type: 'assistant', data: data });
+                    saveChatHistory();
+                }
+            }
+
+            // Show typing indicator
+            function showTypingIndicator() {
+                const typingHtml = `
+                    <div class="message assistant typing-message">
+                        <div class="typing-indicator active">
+                            <div class="typing-dots">
+                                <span></span>
+                                <span></span>
+                                <span></span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                $('#chatContainer').append(typingHtml);
+                scrollToBottom();
+            }
+
+            // Remove typing indicator
+            function removeTypingIndicator() {
+                $('.typing-message').remove();
+            }
+
+            // Show error message
+            function showError(message, save = true) {
+                const errorHtml = `
+                    <div class="message assistant">
+                        <div class="message-content">
+                            <div class="error-message">
+                                ❌ Error: ${escapeHtml(message)}
+                            </div>
+                        </div>
+                    </div>
+                `;
+                $('#chatContainer').append(errorHtml);
+                scrollToBottom();
+
+                if (save) {
+                    messageHistory.push({ type: 'error', text: message });
+                    saveChatHistory();
+                }
+            }
+
+            // Send query to API
+            async function sendQuery(query) {
+                if (isProcessing || !query.trim()) return;
+
+                isProcessing = true;
+                $('#sendButton').prop('disabled', true);
+                $('#userInput').prop('disabled', true);
+
+                // Add to query history
+                queryHistory.push(query);
+                saveQueryHistory(queryHistory);
+                historyIndex = queryHistory.length;
+
+                // Add user message
+                addUserMessage(query);
+                
+                // Show typing indicator
+                showTypingIndicator();
+
+                // Build request payload
+                const payload = {
+                    query: query,
+                    llm_provider: $('#llmProvider').val(),
+                    top_k: parseInt($('#topK').val())
+                };
+
+                // Add context if provided
+                const context = $('#contextInput').val().trim();
+                if (context) {
+                    payload.context = context;
+                }
+
+                // Only add domain filter if domains are selected
+                if (selectedDomains.length > 0) {
+                    payload.filters = {
+                        domains: selectedDomains
+                    };
+                }
+
+                try {
+                    const response = await $.ajax({
+                        url: API_URL,
+                        method: 'POST',
+                        contentType: 'application/json',
+                        data: JSON.stringify(payload),
+                        timeout: 60000 // 60 second timeout
+                    });
+
+                    removeTypingIndicator();
+                    addAssistantMessage(response);
+
+                } catch (error) {
+                    removeTypingIndicator();
+                    
+                    let errorMessage = 'Failed to get response from the server.';
+                    
+                    if (error.status === 0) {
+                        errorMessage = 'Cannot connect to the API server. Please check if it\'s running.';
+                    } else if (error.responseJSON && error.responseJSON.detail) {
+                        errorMessage = error.responseJSON.detail;
+                    } else if (error.statusText) {
+                        errorMessage = error.statusText;
+                    }
+                    
+                    showError(errorMessage);
+                }
+
+                isProcessing = false;
+                $('#sendButton').prop('disabled', false);
+                $('#userInput').prop('disabled', false);
+                $('#userInput').focus();
+            }
+
+            // Scroll to bottom of chat
+            function scrollToBottom() {
+                const chatContainer = $('#chatContainer');
+                chatContainer.animate({
+                    scrollTop: chatContainer[0].scrollHeight
+                }, 300);
+            }
+
+            // Escape HTML to prevent XSS
+            function escapeHtml(text) {
+                const map = {
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#039;'
+                };
+                return text.replace(/[&<>"']/g, m => map[m]);
+            }
+
+            // Format text with line breaks
+            function formatText(text) {
+                return escapeHtml(text).replace(/\n/g, '<br>');
+            }
+
+            // Auto-resize textarea
+            function autoResizeTextarea() {
+                const textarea = $('#userInput')[0];
+                textarea.style.height = 'auto';
+                textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
+            }
+
+            // Send button click
+            $('#sendButton').on('click', function() {
+                const query = $('#userInput').val().trim();
+                if (query) {
+                    sendQuery(query);
+                    $('#userInput').val('');
+                    autoResizeTextarea();
+                }
+            });
+
+            // Handle keyboard events
+            $('#userInput').on('keydown', function(e) {
+                // Enter to send (without Shift)
+                if (e.which === 13 && !e.shiftKey) {
+                    e.preventDefault();
+                    $('#sendButton').click();
+                    return;
+                }
+
+                // Shift+Enter for new line (default behavior)
+                if (e.which === 13 && e.shiftKey) {
+                    // Let default behavior happen
+                    return;
+                }
+
+                // Arrow up - previous query
+                if (e.which === 38) {
+                    e.preventDefault();
+                    if (historyIndex === queryHistory.length) {
+                        currentInput = $(this).val();
+                    }
+                    if (historyIndex > 0) {
+                        historyIndex--;
+                        $(this).val(queryHistory[historyIndex]);
+                        autoResizeTextarea();
+                    }
+                    return;
+                }
+
+                // Arrow down - next query
+                if (e.which === 40) {
+                    e.preventDefault();
+                    if (historyIndex < queryHistory.length - 1) {
+                        historyIndex++;
+                        $(this).val(queryHistory[historyIndex]);
+                    } else if (historyIndex === queryHistory.length - 1) {
+                        historyIndex = queryHistory.length;
+                        $(this).val(currentInput);
+                    }
+                    autoResizeTextarea();
+                    return;
+                }
+            });
+
+            // Auto-resize on input
+            $('#userInput').on('input', autoResizeTextarea);
+
+            // Load domains on startup
+            loadDomains();
+
+            // Load chat history on startup
+            loadChatHistory();
+
+            // Focus input on load
+            $('#userInput').focus();
+        });
+    </script>
+</body>
+</html>
