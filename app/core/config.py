@@ -36,18 +36,21 @@ class Settings(BaseSettings):
         default="sentence-transformers/all-MiniLM-L6-v2", 
         env="EMBEDDING_MODEL"
     )
-    chunk_size: int = Field(default=1000, env="CHUNK_SIZE")
-    chunk_overlap: int = Field(default=200, env="CHUNK_OVERLAP")
+    chunk_size: int = Field(default=500, env="CHUNK_SIZE")
+    chunk_overlap: int = Field(default=100, env="CHUNK_OVERLAP")
+    max_embedding_batch_size: int = Field(default=16, env="MAX_EMBEDDING_BATCH_SIZE")
+    chromadb_max_batch_size: int = Field(default=50, env="CHROMADB_MAX_BATCH_SIZE")
     
     # Crawler Configuration
-    crawler_concurrent_requests: int = Field(default=16, env="CRAWLER_CONCURRENT_REQUESTS")
-    crawler_download_delay: int = Field(default=1, env="CRAWLER_DOWNLOAD_DELAY")
+    crawler_concurrent_requests: int = Field(default=1, env="CRAWLER_CONCURRENT_REQUESTS")
+    crawler_max_threads: int = Field(default=1, env="CRAWLER_MAX_THREADS")
+    crawler_download_delay: int = Field(default=2, env="CRAWLER_DOWNLOAD_DELAY")
     crawler_timeout: int = Field(default=30, env="CRAWLER_TIMEOUT")
     crawler_user_agent: str = Field(
         default="Mozilla/5.0 (compatible; WebCrawlerRAG/1.0)", 
         env="CRAWLER_USER_AGENT"
     )
-    max_crawl_depth: int = Field(default=5, env="MAX_CRAWL_DEPTH")
+    max_crawl_depth: int = Field(default=2, env="MAX_CRAWL_DEPTH")
     respect_robots_txt: bool = Field(default=True, env="RESPECT_ROBOTS_TXT")
     enable_sitemap_crawling: bool = Field(default=True, env="ENABLE_SITEMAP_CRAWLING")
     
@@ -58,7 +61,7 @@ class Settings(BaseSettings):
     
     # Scheduling
     crawl_interval_hours: int = Field(default=24, env="CRAWL_INTERVAL_HOURS")
-    enable_background_crawling: bool = Field(default=True, env="ENABLE_BACKGROUND_CRAWLING")
+    enable_background_crawling: bool = Field(default=False, env="ENABLE_BACKGROUND_CRAWLING")
     
     # Database
     database_url: str = Field(default="sqlite:///./data/crawler_rag.db", env="DATABASE_URL")
@@ -86,6 +89,7 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
+        extra = "ignore"  # Allow extra env vars for system libraries (OMP_NUM_THREADS, etc.)
 
 
 # Global settings instance

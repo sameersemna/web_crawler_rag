@@ -41,6 +41,7 @@ sqlalchemy==2.0.35
 
 # Logging & Monitoring
 loguru==0.7.2
+psutil==6.1.0  # Optional: for resource monitoring endpoint
 
 # Utilities
 python-dotenv==1.0.1

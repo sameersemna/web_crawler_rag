@@ -41,10 +41,11 @@ class WebCrawler:
         ssl_context.set_ciphers('DEFAULT@SECLEVEL=1')
         
         # Create TCP connector with SSL context and connection limits
+        # Use settings for maximum concurrent connections to control resource usage
         connector = aiohttp.TCPConnector(
             ssl=ssl_context,
-            limit=10,
-            limit_per_host=5
+            limit=settings.crawler_concurrent_requests,
+            limit_per_host=max(2, settings.crawler_concurrent_requests // 4)
         )
         
         self.session = aiohttp.ClientSession(

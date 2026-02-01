@@ -14,6 +14,7 @@ from app.services.crawler import WebCrawler
 from app.services.vector_db import vector_db
 from app.services.llm_service import llm_service
 from app.services.scheduler import crawler_scheduler
+from app.services.resource_monitor import resource_monitor
 from app.core.database import get_db
 from app.models.database import Domain, CrawledPage, CrawlLog
 from app.core.logging import app_logger
@@ -153,6 +154,21 @@ async def health_check():
     
     except Exception as e:
         app_logger.error(f"Error in health check: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/resources")
+async def get_resource_usage():
+    """
+    Get current resource usage (memory, CPU, threads)
+    
+    Use this to monitor if the application is consuming too many resources
+    """
+    try:
+        status = resource_monitor.get_status()
+        return status
+    except Exception as e:
+        app_logger.error(f"Error getting resource usage: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -29,8 +29,12 @@ class CrawlerScheduler:
             return
         
         if not settings.enable_background_crawling:
-            app_logger.info("Background crawling disabled in settings")
+            app_logger.info("Background crawling DISABLED - scheduler will not start")
+            app_logger.info("This prevents automatic resource usage. Trigger crawls manually via API.")
             return
+        
+        app_logger.warning("Background crawling ENABLED - this will consume resources automatically!")
+        app_logger.warning("Consider disabling with ENABLE_BACKGROUND_CRAWLING=False")
         
         # Add job for periodic crawling
         self.scheduler.add_job(

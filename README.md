@@ -2,6 +2,8 @@
 
 A comprehensive FastAPI-based web crawler and Retrieval-Augmented Generation (RAG) system that crawls websites, extracts content (including PDFs with OCR), and provides intelligent question-answering capabilities using LLMs.
 
+> **⚠️ Important**: This application includes resource limits to prevent system hangs. See [Resource Management Guide](docs/RESOURCE_MANAGEMENT.md) for configuration options.
+
 ## Features
 
 ### Core Functionality
@@ -461,6 +463,14 @@ Contributions are welcome! Please follow these steps:
 ## License
 
 MIT License - See LICENSE file for details
+
+## Additional Documentation
+
+- [API Usage Guide](docs/API_USAGE.md) - Detailed API endpoint documentation
+- [Project Structure](docs/PROJECT_STRUCTURE.md) - Code organization overview
+- [Quick Start Guide](docs/QUICKSTART.md) - Get up and running quickly
+- [Resource Management](docs/RESOURCE_MANAGEMENT.md) - **⚠️ Important: Prevent system hangs and crashes**
+- [Suggestions](docs/SUGGESTIONS.md) - Enhancement ideas
 
 ## Support
 

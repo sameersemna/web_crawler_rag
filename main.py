@@ -1,11 +1,25 @@
 """
 Main FastAPI Application
 """
+import os
+import sys
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import time
+
+# Set resource limits BEFORE importing other modules
+os.environ.setdefault('OMP_NUM_THREADS', '2')
+os.environ.setdefault('OPENBLAS_NUM_THREADS', '2')
+os.environ.setdefault('MKL_NUM_THREADS', '2')
+os.environ.setdefault('VECLIB_MAXIMUM_THREADS', '2')
+os.environ.setdefault('NUMEXPR_NUM_THREADS', '2')
+os.environ.setdefault('TOKENIZERS_PARALLELISM', 'false')
+
+# Set Python recursion limit to prevent stack overflow
+sys.setrecursionlimit(1000)
+
 from app.api.routes import router
 from app.core.config import settings
 from app.core.logging import app_logger

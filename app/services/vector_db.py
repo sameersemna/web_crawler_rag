@@ -21,14 +21,35 @@ class VectorDatabase:
         self.embedding_model = None
         self.chroma_client = None
         self.collection = None
-        self._initialize()
+        self._initialized = False
+        # CRITICAL: Don't initialize automatically to prevent startup hangs
+        app_logger.info("VectorDatabase created (lazy initialization - will load when first used)")
     
     def _initialize(self):
-        """Initialize vector database and embedding model"""
+        """Initialize vector database and embedding model - ONLY called when actually needed"""
+        if self._initialized:
+            return
+            
         try:
-            # Initialize embedding model
+            app_logger.info("Starting lazy initialization of vector database...")
+            # Initialize embedding model with device and optimization settings
             app_logger.info(f"Loading embedding model: {settings.embedding_model}")
-            self.embedding_model = SentenceTransformer(settings.embedding_model)
+            
+            # Use CPU and optimize for low memory usage
+            import torch
+            device = 'cpu'
+            if torch.cuda.is_available():
+                app_logger.info("CUDA available but using CPU for stability")
+            
+            self.embedding_model = SentenceTransformer(
+                settings.embedding_model,
+                device=device
+            )
+            
+            # Set to evaluation mode and optimize
+            self.embedding_model.eval()
+            
+            app_logger.info("Embedding model loaded successfully")
             
             # Initialize ChromaDB
             db_path = Path(settings.vector_db_path)
@@ -48,76 +69,94 @@ class VectorDatabase:
                 metadata={"hnsw:space": "cosine"}
             )
             
+            self._initialized = True
             app_logger.info("Vector database initialized successfully")
         
         except Exception as e:
             app_logger.error(f"Error initializing vector database: {e}")
+            self._initialized = False
             raise
     
     def add_documents(self, pages: List[CrawledPage]):
         """
-        Add documents to vector database
+        Add documents to vector database with batch processing
         
         Args:
             pages: List of CrawledPage objects
         """
+        # Ensure initialized before use
+        if not self._initialized:
+            app_logger.info("Initializing vector database on first use...")
+            self._initialize()
         try:
             for page in pages:
                 # Split content into chunks
                 chunks = self._split_text(page.content)
                 
-                # Generate embeddings
-                embeddings = self.embedding_model.encode(chunks).tolist()
-                
-                # Prepare metadata
-                metadatas = []
-                ids = []
-                
-                for i, chunk in enumerate(chunks):
-                    chunk_id = self._generate_chunk_id(page.url, i)
+                # Process chunks in batches to control memory usage
+                batch_size = settings.max_embedding_batch_size
+                for batch_start in range(0, len(chunks), batch_size):
+                    batch_end = min(batch_start + batch_size, len(chunks))
+                    chunk_batch = chunks[batch_start:batch_end]
                     
-                    metadata = {
-                        "url": page.url,
-                        "domain": page.domain,
-                        "title": page.title or "",
-                        "content_type": page.content_type,
-                        "chunk_index": i,
-                        "page_number": page.page_number or 0,
-                        "page_id": page.id
-                    }
+                    # Generate embeddings for batch
+                    embeddings = self.embedding_model.encode(chunk_batch, show_progress_bar=False).tolist()
                     
-                    metadatas.append(metadata)
-                    ids.append(chunk_id)
-                
-                # Add to ChromaDB
-                self.collection.add(
-                    embeddings=embeddings,
-                    documents=chunks,
-                    metadatas=metadatas,
-                    ids=ids
-                )
-                
-                # Store vector IDs in database
-                with get_db_context() as db:
-                    for i, chunk_id in enumerate(ids):
-                        # Check if vector already exists
-                        existing = db.query(VectorEmbedding).filter(
-                            VectorEmbedding.vector_id == chunk_id
-                        ).first()
+                    # Prepare metadata
+                    metadatas = []
+                    ids = []
+                    
+                    for i, chunk in enumerate(chunk_batch):
+                        chunk_idx = batch_start + i
+                        chunk_id = self._generate_chunk_id(page.url, chunk_idx)
                         
-                        if not existing:
-                            vector_embedding = VectorEmbedding(
-                                page_id=page.id,
-                                chunk_index=i,
-                                chunk_text=chunks[i],
-                                vector_id=chunk_id
-                            )
-                            db.add(vector_embedding)
-                        else:
-                            # Update existing embedding if content changed
-                            existing.chunk_text = chunks[i]
-                            existing.page_id = page.id
-                            existing.chunk_index = i
+                        metadata = {
+                            "url": page.url,
+                            "domain": page.domain,
+                            "title": page.title or "",
+                            "content_type": page.content_type,
+                            "chunk_index": chunk_idx,
+                            "page_number": page.page_number or 0,
+                            "page_id": page.id
+                        }
+                        
+                        metadatas.append(metadata)
+                        ids.append(chunk_id)
+                    
+                    # Add to ChromaDB in smaller batches
+                    chroma_batch_size = settings.chromadb_max_batch_size
+                    for cb_start in range(0, len(ids), chroma_batch_size):
+                        cb_end = min(cb_start + chroma_batch_size, len(ids))
+                        
+                        self.collection.add(
+                            embeddings=embeddings[cb_start:cb_end],
+                            documents=chunk_batch[cb_start:cb_end],
+                            metadatas=metadatas[cb_start:cb_end],
+                            ids=ids[cb_start:cb_end]
+                        )
+                    
+                    # Store vector IDs in database
+                    with get_db_context() as db:
+                        for i, chunk_id in enumerate(ids):
+                            chunk_idx = batch_start + i
+                            # Check if vector already exists
+                            existing = db.query(VectorEmbedding).filter(
+                                VectorEmbedding.vector_id == chunk_id
+                            ).first()
+                            
+                            if not existing:
+                                vector_embedding = VectorEmbedding(
+                                    page_id=page.id,
+                                    chunk_index=chunk_idx,
+                                    chunk_text=chunk_batch[i],
+                                    vector_id=chunk_id
+                                )
+                                db.add(vector_embedding)
+                            else:
+                                # Update existing embedding if content changed
+                                existing.chunk_text = chunk_batch[i]
+                                existing.page_id = page.id
+                                existing.chunk_index = chunk_idx
                 
                 app_logger.debug(f"Added {len(chunks)} chunks from {page.url} to vector DB")
         
@@ -144,12 +183,17 @@ class VectorDatabase:
         Returns:
             List of search results with metadata
         """
+        # Ensure initialized before use
+        if not self._initialized:
+            app_logger.info("Initializing vector database on first search...")
+            self._initialize()
+            
         try:
             top_k = top_k or settings.rag_top_k_results
             similarity_threshold = similarity_threshold or settings.rag_similarity_threshold
             
             # Generate query embedding
-            query_embedding = self.embedding_model.encode([query]).tolist()
+            query_embedding = self.embedding_model.encode([query], show_progress_bar=False).tolist()
             
             # Search
             results = self.collection.query(
@@ -227,10 +271,20 @@ class VectorDatabase:
     
     def get_stats(self) -> Dict:
         """Get vector database statistics"""
+        # Return basic info if not initialized yet
+        if not self._initialized or self.collection is None:
+            return {
+                "status": "not_initialized",
+                "message": "Vector database will initialize on first use (lazy loading)",
+                "embedding_model": settings.embedding_model,
+                "total_chunks": 0
+            }
+        
         try:
             count = self.collection.count()
             
             return {
+                "status": "initialized",
                 "total_chunks": count,
                 "embedding_model": settings.embedding_model,
                 "collection_name": self.collection.name
@@ -238,10 +292,18 @@ class VectorDatabase:
         
         except Exception as e:
             app_logger.error(f"Error getting vector DB stats: {e}")
-            return {}
+            return {
+                "status": "error",
+                "error": str(e)
+            }
     
     def reset(self):
         """Reset vector database (delete all data)"""
+        # Ensure initialized before reset
+        if not self._initialized:
+            app_logger.info("Initializing vector database before reset...")
+            self._initialize()
+            
         try:
             self.chroma_client.delete_collection("web_content")
             self.collection = self.chroma_client.create_collection(
