@@ -3,7 +3,7 @@ LLM Service
 Handles interaction with Gemini and DeepSeek APIs
 """
 from typing import List, Dict, Optional
-import google.generativeai as genai
+import httpx
 from openai import OpenAI
 from app.core.config import settings
 from app.core.logging import app_logger
@@ -13,18 +13,15 @@ class LLMService:
     """Service for interacting with LLM APIs"""
     
     def __init__(self):
-        self.gemini_client = None
         self.deepseek_client = None
         self._initialize_clients()
     
     def _initialize_clients(self):
         """Initialize LLM clients"""
         try:
-            # Initialize Gemini
+            # Gemini will use REST API directly (no SDK initialization needed)
             if settings.gemini_api_key:
-                genai.configure(api_key=settings.gemini_api_key)
-                self.gemini_client = genai.GenerativeModel('gemini-pro')
-                app_logger.info("Gemini client initialized")
+                app_logger.info("Gemini configured (using REST API)")
             
             # Initialize DeepSeek (uses OpenAI-compatible API)
             if settings.deepseek_api_key:
@@ -89,23 +86,51 @@ class LLMService:
             }
     
     async def _generate_gemini(self, prompt: str, temperature: float) -> str:
-        """Generate response using Gemini"""
-        if not self.gemini_client:
-            raise ValueError("Gemini client not initialized. Check API key.")
+        """Generate response using Gemini REST API"""
+        if not settings.gemini_api_key:
+            raise ValueError("Gemini API key not configured in .env file.")
         
         try:
-            generation_config = genai.types.GenerationConfig(
-                temperature=temperature,
-                max_output_tokens=settings.llm_max_tokens,
-                top_p=settings.llm_top_p
-            )
+            # Use Gemini REST API v1 with configurable model
+            url = f"https://generativelanguage.googleapis.com/v1/models/{settings.gemini_model}:generateContent?key={settings.gemini_api_key}"
             
-            response = self.gemini_client.generate_content(
-                prompt,
-                generation_config=generation_config
-            )
+            payload = {
+                "contents": [{
+                    "parts": [{"text": prompt}]
+                }],
+                "generationConfig": {
+                    "temperature": temperature,
+                    "maxOutputTokens": settings.llm_max_tokens,
+                    "topP": settings.llm_top_p
+                }
+            }
             
-            return response.text
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(url, json=payload)
+                response.raise_for_status()
+                result = response.json()
+            
+            # Extract text from response
+            if "candidates" in result and len(result["candidates"]) > 0:
+                candidate = result["candidates"][0]
+                if "content" in candidate and "parts" in candidate["content"]:
+                    return candidate["content"]["parts"][0]["text"]
+            
+            raise ValueError(f"Unexpected Gemini API response: {result}")
+        
+        except httpx.HTTPStatusError as e:
+            error_msg = str(e)
+            response_text = e.response.text if hasattr(e, 'response') else ""
+            
+            if e.response.status_code == 403:
+                app_logger.error(f"Gemini API key error: {e}")
+                raise ValueError("Invalid Gemini API key. Check GEMINI_API_KEY in .env file.")
+            elif e.response.status_code == 429:
+                app_logger.error(f"Gemini rate limit: {e}")
+                raise ValueError("Gemini API rate limited or quota exceeded.")
+            else:
+                app_logger.error(f"Gemini HTTP error: {e.response.status_code} - {response_text}")
+                raise ValueError(f"Gemini API error: {e.response.status_code}")
         
         except Exception as e:
             app_logger.error(f"Gemini API error: {e}")

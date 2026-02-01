@@ -84,6 +84,46 @@ async def trigger_crawl(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/embed")
+async def trigger_embed(
+    request: CrawlRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """
+    Trigger embedding of already-crawled pages without re-crawling
+    
+    This will take existing pages from the database and add them to the vector database
+    """
+    try:
+        # Validate domains exist
+        for domain_name in request.domains:
+            domain = db.query(Domain).filter(Domain.domain == domain_name).first()
+            
+            if not domain:
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"Domain {domain_name} not found. Please crawl it first using /crawl endpoint."
+                )
+        
+        # Start embedding in background
+        background_tasks.add_task(
+            _background_embed,
+            request.domains
+        )
+        
+        return {
+            "message": f"Embedding started for {len(request.domains)} domain(s)",
+            "domains": request.domains
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        app_logger.error(f"Error triggering embed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/status", response_model=CrawlStatusResponse)
 async def get_crawl_status(db: Session = Depends(get_db)):
     """
@@ -308,18 +348,57 @@ async def _background_crawl(domains: List[str], force_recrawl: bool):
                 app_logger.info(f"Background crawl started for: {domain}")
                 stats = await crawler.crawl_domain(domain)
                 
-                # Update vector database
-                if stats.get('pages_crawled', 0) > 0:
+                app_logger.info(f"Crawl completed with stats: {stats.get('pages_crawled', 0)} pages crawled")
+                
+                # Update vector database - always try regardless of stats
+                try:
                     with get_db_context() as db:
                         pages = db.query(CrawledPage).filter(
                             CrawledPage.domain == domain
                         ).all()
                         
+                        app_logger.info(f"Found {len(pages)} pages in database for {domain}")
+                        
                         if pages:
+                            app_logger.info(f"Starting to add {len(pages)} pages to vector database...")
                             vector_db.add_documents(pages)
+                            app_logger.info(f"Successfully completed adding pages to vector database")
+                        else:
+                            app_logger.warning(f"No pages found in database for {domain}")
+                
+                except Exception as e:
+                    app_logger.error(f"Error adding documents to vector DB for {domain}: {e}", exc_info=True)
     
     except Exception as e:
-        app_logger.error(f"Error in background crawl: {e}")
+        app_logger.error(f"Error in background crawl: {e}", exc_info=True)
+
+
+async def _background_embed(domains: List[str]):
+    """Background task for embedding existing crawled pages without re-crawling"""
+    try:
+        for domain in domains:
+            app_logger.info(f"Background embedding started for: {domain}")
+            
+            try:
+                with get_db_context() as db:
+                    pages = db.query(CrawledPage).filter(
+                        CrawledPage.domain == domain
+                    ).all()
+                    
+                    app_logger.info(f"Found {len(pages)} pages in database for {domain}")
+                    
+                    if pages:
+                        app_logger.info(f"Starting to add {len(pages)} pages to vector database...")
+                        vector_db.add_documents(pages)
+                        app_logger.info(f"Successfully completed adding pages to vector database for {domain}")
+                    else:
+                        app_logger.warning(f"No pages found in database for {domain}")
+            
+            except Exception as e:
+                app_logger.error(f"Error adding documents to vector DB for {domain}: {e}", exc_info=True)
+    
+    except Exception as e:
+        app_logger.error(f"Error in background embed: {e}", exc_info=True)
 
 
 # Import get_db_context for background task

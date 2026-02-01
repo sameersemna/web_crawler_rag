@@ -161,12 +161,19 @@ class WebCrawler:
                 if isinstance(result, set):
                     new_urls.update(result)
             
+            # Log how many new URLs were found
+            if new_urls:
+                app_logger.info(f"Found {len(new_urls)} new URLs at depth {current_depth}")
+            else:
+                app_logger.info(f"No new URLs found at depth {current_depth}")
+            
             # Delay between batches
             if settings.crawler_download_delay > 0:
                 await asyncio.sleep(settings.crawler_download_delay)
             
             # Recursively crawl new URLs
             if new_urls and current_depth < max_depth - 1:
+                app_logger.info(f"Crawling {len(new_urls)} URLs at depth {current_depth + 1} (max depth: {max_depth})")
                 await self._crawl_urls(
                     urls_to_crawl=new_urls,
                     base_url=base_url,
@@ -175,6 +182,8 @@ class WebCrawler:
                     max_depth=max_depth,
                     current_depth=current_depth + 1
                 )
+            elif current_depth >= max_depth - 1:
+                app_logger.info(f"Reached max depth {max_depth}, stopping crawl")
     
     async def _crawl_single_url(
         self,
@@ -253,6 +262,11 @@ class WebCrawler:
                         
                         # Extract links for further crawling
                         new_urls = self._extract_links(soup, base_url)
+                        
+                        # Log the links found
+                        app_logger.info(f"Extracted {len(new_urls)} links from {url}")
+                        if len(new_urls) > 0 and len(new_urls) <= 5:
+                            app_logger.debug(f"Sample links: {list(new_urls)[:5]}")
                         
                         stats["pages_crawled"] += 1
                         log_entry_data["status"] = "success"
@@ -367,11 +381,18 @@ class WebCrawler:
         external_frames = []
         
         # Extract regular anchor links
-        for link in soup.find_all('a', href=True):
+        all_anchors = soup.find_all('a', href=True)
+        app_logger.debug(f"Found {len(all_anchors)} anchor tags in HTML from {base_url}")
+        
+        skipped_count = 0
+        different_domain_count = 0
+        
+        for link in all_anchors:
             href = link['href']
             
             # Skip anchors, mailto, javascript, etc.
             if href.startswith(('#', 'mailto:', 'javascript:', 'tel:')):
+                skipped_count += 1
                 continue
             
             # Convert relative URLs to absolute
@@ -382,6 +403,14 @@ class WebCrawler:
                 # Remove fragments
                 absolute_url = absolute_url.split('#')[0]
                 links.add(absolute_url)
+            else:
+                different_domain_count += 1
+                if different_domain_count <= 3:
+                    app_logger.debug(f"Skipping different domain: {absolute_url} vs {base_url}")
+        
+        app_logger.info(f"Link extraction from {base_url}: {len(all_anchors)} anchors found, {skipped_count} skipped (mailto/javascript/etc), {different_domain_count} different domain, {len(links)} same-domain links")
+        if len(links) > 0:
+            app_logger.debug(f"Same-domain links: {list(links)[:5]}")
         
         # Extract frame and iframe sources
         for frame in soup.find_all(['frame', 'iframe'], src=True):
@@ -491,8 +520,20 @@ class WebCrawler:
         return f"{parsed.scheme}://{parsed.netloc}"
     
     def _is_same_domain(self, url: str, base_url: str) -> bool:
-        """Check if URL belongs to the same domain"""
-        return urlparse(url).netloc == urlparse(base_url).netloc
+        """Check if URL belongs to the same domain or any subdomain"""
+        url_netloc = urlparse(url).netloc.lower()
+        base_netloc = urlparse(base_url).netloc.lower()
+        
+        # Remove www. prefix from base domain for matching
+        base_domain = base_netloc.removeprefix('www.')
+        url_domain = url_netloc.removeprefix('www.')
+        
+        # Check if same domain or subdomain
+        # Examples: 
+        # - bakkah.net == bakkah.net ✓
+        # - blog.bakkah.net ends with .bakkah.net ✓
+        # - api.shop.bakkah.net ends with .bakkah.net ✓
+        return url_domain == base_domain or url_domain.endswith('.' + base_domain)
     
     async def _save_page(
         self,

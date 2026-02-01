@@ -84,14 +84,42 @@ class VectorDatabase:
         Args:
             pages: List of CrawledPage objects
         """
-        # Ensure initialized before use
-        if not self._initialized:
-            app_logger.info("Initializing vector database on first use...")
-            self._initialize()
         try:
-            for page in pages:
-                # Split content into chunks
-                chunks = self._split_text(page.content)
+            # app_logger.info("=== ENTER add_documents ===")
+            # app_logger.info(f"Received {len(pages) if pages else 0} pages")
+            
+            # Ensure initialized before use
+            if not self._initialized:
+                app_logger.info("Initializing vector database on first use...")
+                self._initialize()
+            
+            app_logger.info(f"Adding {len(pages)} pages to vector database...")
+            
+            if not pages:
+                app_logger.warning("No pages to process!")
+                return
+            
+# app_logger.info(f"Pages list type: {type(pages)}, first page type: {type(pages[0])}")
+        # app_logger.info("Starting page processing loop...")
+            
+            total_chunks = 0
+            pages_processed = 0
+            
+            for page_idx, page in enumerate(pages, 1):
+                try:
+                    # app_logger.info(f"About to process page {page_idx}: {page.url}")
+                    # app_logger.info(f"Page content length: {len(page.content) if page.content else 0}")
+                    
+                    # Split content into chunks
+                    # app_logger.info(f"Calling _split_text for page {page_idx}...")
+                    chunks = self._split_text(page.content)
+                # app_logger.info(f"_split_text returned {len(chunks)} chunks")
+                    
+                    if page_idx % 10 == 0 or page_idx == 1:
+                        app_logger.info(f"Processing page {page_idx}/{len(pages)}: {page.url} ({len(chunks)} chunks)")
+                except Exception as page_error:
+                    app_logger.error(f"Error processing page {page_idx} ({getattr(page, 'url', 'unknown')}): {page_error}", exc_info=True)
+                    continue
                 
                 # Process chunks in batches to control memory usage
                 batch_size = settings.max_embedding_batch_size
@@ -157,11 +185,21 @@ class VectorDatabase:
                                 existing.chunk_text = chunk_batch[i]
                                 existing.page_id = page.id
                                 existing.chunk_index = chunk_idx
+                        
+                        db.commit()
                 
-                app_logger.debug(f"Added {len(chunks)} chunks from {page.url} to vector DB")
+                total_chunks += len(chunks)
+                pages_processed += 1
+                
+                if pages_processed % 10 == 0 or pages_processed == len(pages):
+                    app_logger.info(f"Progress: {pages_processed}/{len(pages)} pages processed, {total_chunks} total chunks added")
+            
+            app_logger.info(f"Successfully added {total_chunks} total chunks from {len(pages)} pages to vector database")
+            # app_logger.info("=== EXIT add_documents SUCCESS ===")
         
         except Exception as e:
-            app_logger.error(f"Error adding documents to vector DB: {e}")
+            app_logger.error(f"!!! ERROR in add_documents: {e} !!!", exc_info=True)
+            # app_logger.error("=== EXIT add_documents FAILURE ===")
             raise
     
     def search(
@@ -192,8 +230,12 @@ class VectorDatabase:
             top_k = top_k or settings.rag_top_k_results
             similarity_threshold = similarity_threshold or settings.rag_similarity_threshold
             
+            app_logger.info(f"Vector search: query='{query[:50]}', top_k={top_k}, threshold={similarity_threshold}")
+            
             # Generate query embedding
             query_embedding = self.embedding_model.encode([query], show_progress_bar=False).tolist()
+            
+            app_logger.info(f"Generated query embedding, searching collection...")
             
             # Search
             results = self.collection.query(
@@ -202,14 +244,20 @@ class VectorDatabase:
                 where=filters
             )
             
+            app_logger.info(f"ChromaDB returned {len(results['ids'][0]) if results['ids'] and results['ids'][0] else 0} raw results")
+            
             # Process results
             search_results = []
             
             if results['ids'] and results['ids'][0]:
+                app_logger.info(f"Processing {len(results['ids'][0])} results, threshold={similarity_threshold}")
                 for i in range(len(results['ids'][0])):
                     # Calculate similarity score (ChromaDB returns distances)
                     distance = results['distances'][0][i]
                     similarity_score = 1 - distance  # Convert distance to similarity
+                    
+                    if i < 3:  # Log first 3 results
+                        app_logger.info(f"Result {i}: distance={distance:.4f}, similarity={similarity_score:.4f}, threshold={similarity_threshold}")
                     
                     if similarity_score >= similarity_threshold:
                         result = {
@@ -219,11 +267,14 @@ class VectorDatabase:
                             "similarity_score": similarity_score
                         }
                         search_results.append(result)
+            else:
+                app_logger.warning("No results returned from ChromaDB!")
             
             # Sort by similarity and limit to top_k
             search_results.sort(key=lambda x: x['similarity_score'], reverse=True)
             search_results = search_results[:top_k]
             
+            app_logger.info(f"Returning {len(search_results)} results after filtering by threshold {similarity_threshold}")
             app_logger.debug(f"Found {len(search_results)} results for query: {query[:50]}...")
             
             return search_results
@@ -326,9 +377,18 @@ class VectorDatabase:
         Returns:
             List of text chunks
         """
+        # app_logger.info(f"_split_text ENTER: text length={len(text) if text else 0}")
+        
         chunks = []
         chunk_size = settings.chunk_size
         overlap = settings.chunk_overlap
+        
+        # Ensure overlap doesn't equal or exceed chunk_size to prevent infinite loop
+        if overlap >= chunk_size:
+            app_logger.warning(f"overlap ({overlap}) >= chunk_size ({chunk_size}), reducing overlap to chunk_size/2")
+            overlap = chunk_size // 2
+        
+        # app_logger.info(f"_split_text: chunk_size={chunk_size}, overlap={overlap}")
         
         # Simple character-based chunking
         # In production, consider using more sophisticated methods
@@ -337,14 +397,26 @@ class VectorDatabase:
         start = 0
         text_length = len(text)
         
+        # app_logger.info(f"_split_text: Starting loop, text_length={text_length}")
+        
+        iteration = 0
         while start < text_length:
+            iteration += 1
+            # if iteration % 10 == 0:
+            #     app_logger.info(f"_split_text: iteration {iteration}, start={start}/{text_length}")
+            
+            # Safety check to prevent infinite loops
+            if iteration > 10000:
+                app_logger.error(f"_split_text: Breaking infinite loop at iteration {iteration}, start={start}")
+                break
+            
             end = start + chunk_size
             
-            # Try to break at sentence boundary
+            # Try to break at sentence boundary (but only if it doesn't make chunk too small)
             if end < text_length:
                 # Look for sentence endings
                 for punct in ['. ', '! ', '? ', '\n\n']:
-                    last_punct = text.rfind(punct, start, end)
+                    last_punct = text.rfind(punct, start + chunk_size // 2, end)  # Only search in second half
                     if last_punct != -1:
                         end = last_punct + len(punct)
                         break
@@ -353,8 +425,11 @@ class VectorDatabase:
             if chunk:
                 chunks.append(chunk)
             
-            start = end - overlap
+            # Ensure we always advance, never go backwards
+            new_start = max(start + 1, end - overlap)  # At minimum, advance by 1 char
+            start = new_start
         
+        # app_logger.info(f"_split_text EXIT: returning {len(chunks)} chunks after {iteration} iterations")
         return chunks
     
     def _generate_chunk_id(self, url: str, chunk_index: int) -> str:

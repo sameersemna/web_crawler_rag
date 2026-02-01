@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     
     # LLM API Keys
     gemini_api_key: str = Field(default="", env="GEMINI_API_KEY")
+    gemini_model: str = Field(default="gemini-2.0-flash-lite", env="GEMINI_MODEL")
     deepseek_api_key: str = Field(default="", env="DEEPSEEK_API_KEY")
     default_llm_provider: Literal["gemini", "deepseek"] = Field(
         default="gemini", env="DEFAULT_LLM_PROVIDER"
