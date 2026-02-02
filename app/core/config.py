@@ -1,13 +1,18 @@
 """
 Configuration management using Pydantic Settings
+Supports both .env files and YAML instance configs
 """
 from pydantic_settings import BaseSettings
 from pydantic import Field
-from typing import Literal
+from typing import Literal, Optional
 
 
 class Settings(BaseSettings):
-    """Application settings"""
+    """Application settings - can be overridden by instance YAML config"""
+    
+    # Instance Configuration (set by YAML loader)
+    instance_name: Optional[str] = Field(default=None, env="INSTANCE_NAME")
+    instance_description: Optional[str] = Field(default=None, env="INSTANCE_DESCRIPTION")
     
     # API Configuration
     api_host: str = Field(default="0.0.0.0", env="API_HOST")

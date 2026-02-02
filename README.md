@@ -492,3 +492,4 @@ For issues and questions:
 
 
 sqlite3 data/crawler_rag.db "SELECT COUNT(*) FROM vector_embeddings;"
+kill -9 $(lsof -t -i:8000)

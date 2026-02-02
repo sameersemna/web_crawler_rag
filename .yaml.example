@@ -1,0 +1,115 @@
+# Example Instance Configuration
+# Copy this file and customize for your instance
+# Usage: python main.py your-instance.yaml
+
+instance:
+  # Unique identifier for this instance (used in logs and data paths)
+  name: "example"
+  
+  # Description of this instance
+  description: "Example instance template"
+
+server:
+  # Port number for this instance's API
+  port: 8000
+  
+  # Host to bind to (0.0.0.0 for all interfaces)
+  host: "0.0.0.0"
+  
+  # Number of uvicorn workers
+  workers: 2
+  
+  # Request timeout
+  timeout: 30
+
+paths:
+  # Base data directory for this instance (relative to project root)
+  # Will contain: database, vector_db, logs
+  data_dir: "data/example"
+  
+  # Domains CSV file (list of domains to crawl)
+  domains_file: "data/example/domains.csv"
+
+database:
+  # SQLite database filename
+  db_name: "crawler_rag.db"
+  
+  # Vector database directory name
+  vector_db_dir: "vector_db"
+  
+  # Logs directory name
+  logs_dir: "logs"
+
+crawler:
+  # Maximum crawl depth
+  max_depth: 5
+  
+  # Number of concurrent requests
+  concurrent_requests: 2
+  
+  # Delay between requests (seconds)
+  download_delay: 1.0
+  
+  # Maximum pages to crawl per domain (0 = unlimited)
+  max_pages_per_domain: 0
+  
+  # User agent string
+  user_agent: "Mozilla/5.0 (compatible; WebCrawlerBot/1.0)"
+  
+  # Enable background crawling
+  enable_background: false
+  
+  # Crawl schedule (cron format, only if background enabled)
+  schedule: "0 2 * * *"  # Daily at 2 AM
+
+embeddings:
+  # Embedding model from HuggingFace
+  model: "sentence-transformers/all-MiniLM-L6-v2"
+  
+  # Chunk size for text splitting
+  chunk_size: 500
+  
+  # Chunk overlap
+  chunk_overlap: 100
+  
+  # Batch size for embedding generation
+  batch_size: 32
+  
+  # ChromaDB batch size
+  chromadb_batch_size: 100
+
+rag:
+  # Number of top results to retrieve
+  top_k_results: 5
+  
+  # Similarity threshold (0-1)
+  similarity_threshold: 0.5
+  
+  # Snippet length in response
+  snippet_length: 200
+  
+  # Default LLM provider (gemini or deepseek)
+  default_provider: "gemini"
+  
+  # LLM temperature
+  temperature: 0.7
+
+llm:
+  # Gemini model name
+  gemini_model: "gemini-2.0-flash-lite"
+  
+  # DeepSeek model name
+  deepseek_model: "deepseek-chat"
+
+resources:
+  # Number of threads for ML operations
+  num_threads: 4
+  
+  # Maximum number of threads for crawler
+  max_crawler_threads: 4
+  
+  # Enable OCR for PDFs (resource intensive)
+  enable_ocr: false
+
+# Note: API keys and sensitive data should be in .env file, not here
+# This file should only contain instance-specific configuration
