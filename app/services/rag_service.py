@@ -117,13 +117,21 @@ class RAGService:
             snippet_length: Maximum length of snippet
             
         Returns:
-            List of source references
+            List of deduplicated source references (one per unique URL)
         """
         sources = []
+        seen_urls = set()  # Track unique URLs
         
         for result in search_results:
             metadata = result['metadata']
             text = result['text']
+            url = metadata['url']
+            
+            # Skip if we've already added this URL
+            if url in seen_urls:
+                continue
+            
+            seen_urls.add(url)
             
             # Create snippet
             snippet = self._create_snippet(text, snippet_length)

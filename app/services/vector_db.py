@@ -35,11 +35,14 @@ class VectorDatabase:
             # Initialize embedding model with device and optimization settings
             app_logger.info(f"Loading embedding model: {settings.embedding_model}")
             
-            # Use CPU and optimize for low memory usage
+            # Use GPU if available for better performance
             import torch
-            device = 'cpu'
             if torch.cuda.is_available():
-                app_logger.info("CUDA available but using CPU for stability")
+                device = 'cuda'
+                app_logger.info(f"CUDA available - using GPU: {torch.cuda.get_device_name(0)}")
+            else:
+                device = 'cpu'
+                app_logger.info("CUDA not available - using CPU")
             
             self.embedding_model = SentenceTransformer(
                 settings.embedding_model,
@@ -49,7 +52,7 @@ class VectorDatabase:
             # Set to evaluation mode and optimize
             self.embedding_model.eval()
             
-            app_logger.info("Embedding model loaded successfully")
+            app_logger.info(f"Embedding model loaded successfully on {device.upper()}")
             
             # Initialize ChromaDB
             db_path = Path(settings.vector_db_path)
