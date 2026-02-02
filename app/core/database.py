@@ -10,23 +10,37 @@ from app.models.database import Base
 from app.core.logging import app_logger
 
 
-# Create engine
-if settings.database_url.startswith("sqlite"):
-    engine = create_engine(
-        settings.database_url,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-else:
-    engine = create_engine(settings.database_url, pool_pre_ping=True)
+# Global engine and session factory (initialized later)
+engine = None
+SessionLocal = None
 
-# Create session factory
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+def initialize_database():
+    """Initialize database engine and session factory"""
+    global engine, SessionLocal
+    
+    # Create engine
+    if settings.database_url.startswith("sqlite"):
+        engine = create_engine(
+            settings.database_url,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+    else:
+        engine = create_engine(settings.database_url, pool_pre_ping=True)
+    
+    # Create session factory
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    
+    app_logger.info(f"Database initialized: {settings.database_url}")
 
 
 def init_db():
     """Initialize database tables"""
     try:
+        if engine is None:
+            initialize_database()
+        
         Base.metadata.create_all(bind=engine)
         app_logger.info("Database tables created successfully")
     except Exception as e:
@@ -36,6 +50,9 @@ def init_db():
 
 def get_db() -> Session:
     """Dependency for getting database session"""
+    if SessionLocal is None:
+        initialize_database()
+    
     db = SessionLocal()
     try:
         yield db
@@ -46,6 +63,9 @@ def get_db() -> Session:
 @contextmanager
 def get_db_context():
     """Context manager for database session"""
+    if SessionLocal is None:
+        initialize_database()
+    
     db = SessionLocal()
     try:
         yield db

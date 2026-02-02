@@ -69,12 +69,12 @@ class Settings(BaseSettings):
     crawl_interval_hours: int = Field(default=24, env="CRAWL_INTERVAL_HOURS")
     enable_background_crawling: bool = Field(default=False, env="ENABLE_BACKGROUND_CRAWLING")
     
-    # Database
-    database_url: str = Field(default="sqlite:///./data/crawler_rag.db", env="DATABASE_URL")
+    # Database (constructed from instance YAML config)
+    database_url: Optional[str] = Field(default=None, env="DATABASE_URL")
     
     # Logging
     log_level: str = Field(default="INFO", env="LOG_LEVEL")
-    log_file_path: str = Field(default="./data/logs/crawler.log", env="LOG_FILE_PATH")
+    log_file_path: Optional[str] = Field(default=None, env="LOG_FILE_PATH")  # Set by instance config
     log_max_size: str = Field(default="100MB", env="LOG_MAX_SIZE")
     log_backup_count: int = Field(default=10, env="LOG_BACKUP_COUNT")
     
@@ -100,3 +100,10 @@ class Settings(BaseSettings):
 
 # Global settings instance
 settings = Settings()
+
+
+def reload_settings():
+    """Reload settings from environment variables (for multi-instance support)"""
+    global settings
+    settings = Settings()
+    return settings

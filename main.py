@@ -24,10 +24,10 @@ os.environ.setdefault('TOKENIZERS_PARALLELISM', 'false')
 sys.setrecursionlimit(1000)
 
 from app.api.routes import router
-from app.core.config import settings
+from app.core.config import settings, reload_settings
 from app.core.config_loader import load_instance_config, get_instance_config
-from app.core.logging import app_logger
-from app.core.database import init_db
+from app.core.logging import app_logger, setup_logging
+from app.core.database import init_db, initialize_database
 
 
 # Parse command line arguments
@@ -180,8 +180,13 @@ if __name__ == "__main__":
         os.environ['API_PORT'] = str(instance_cfg.port)
         os.environ['DATABASE_URL'] = f"sqlite:///{instance_cfg.db_path}"
         os.environ['VECTOR_DB_PATH'] = str(instance_cfg.vector_db_path)
-        os.environ['LOG_FILE_PATH'] = str(instance_cfg.logs_dir / "crawler.log")
         os.environ['DOMAINS_CSV_PATH'] = str(instance_cfg.domains_file)
+        
+        # Construct log file path from data_dir (for worker processes)
+        os.environ['LOG_FILE_PATH'] = str(instance_cfg.logs_dir / "crawler.log")
+        
+        # Reload settings from updated environment variables
+        reload_settings()
         
         # Override settings with instance config (for main process)
         settings.instance_name = instance_cfg.instance_name
@@ -191,8 +196,10 @@ if __name__ == "__main__":
         settings.api_workers = instance_cfg.workers
         settings.database_url = f"sqlite:///{instance_cfg.db_path}"
         settings.vector_db_path = str(instance_cfg.vector_db_path)
-        settings.log_file_path = str(instance_cfg.logs_dir / "crawler.log")
         settings.domains_csv_path = str(instance_cfg.domains_file)
+        
+        # Set log file path from data_dir (not from .env)
+        settings.log_file_path = str(instance_cfg.logs_dir / "crawler.log")
         
         # Override crawler settings
         settings.max_crawl_depth = instance_cfg.get('crawler.max_depth', 5)
@@ -224,6 +231,12 @@ if __name__ == "__main__":
         os.environ['MKL_NUM_THREADS'] = str(instance_cfg.get('resources.num_threads', 4))
         settings.enable_ocr = instance_cfg.get('resources.enable_ocr', False)
         
+        # Reconfigure logging with instance-specific path
+        setup_logging(force_reconfigure=True)
+        
+        # Reinitialize database with instance-specific path
+        initialize_database()
+        
         print(f"\n{'='*60}")
         print(f"Starting Instance: {instance_cfg.instance_name}")
         print(f"{'='*60}")
@@ -232,6 +245,7 @@ if __name__ == "__main__":
         print(f"Data directory: {instance_cfg.data_dir}")
         print(f"Database: {instance_cfg.db_path}")
         print(f"Domains file: {instance_cfg.domains_file}")
+        print(f"Log file: {instance_cfg.logs_dir / 'crawler.log'}")
         print(f"{'='*60}\n")
     else:
         print("\nNo configuration file specified. Using default settings.")
