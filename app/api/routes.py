@@ -344,6 +344,13 @@ async def get_statistics(db: Session = Depends(get_db)):
         # Vector DB stats
         vector_stats = vector_db.get_stats()
         
+        # Embedding queue stats
+        try:
+            from app.services.embedding_queue import embedding_queue
+            embedding_stats = embedding_queue.get_stats()
+        except Exception:
+            embedding_stats = {"error": "Embedding queue not available"}
+        
         # Recent activity
         recent_crawls = db.query(CrawlLog).filter(
             CrawlLog.status == 'success'
@@ -358,6 +365,7 @@ async def get_statistics(db: Session = Depends(get_db)):
                 "total": total_pages
             },
             "vector_db": vector_stats,
+            "embedding_queue": embedding_stats,
             "logs": {
                 "total": total_logs
             },

@@ -25,6 +25,7 @@ class WebCrawler:
         self.visited_urls: Set[str] = set()
         self.pdf_processor = PDFProcessor()
         self.session: Optional[aiohttp.ClientSession] = None
+        self._approved_domains: Optional[Set[str]] = None  # Cache of approved domains from database
         
     async def __aenter__(self):
         """Async context manager entry"""
@@ -40,13 +41,34 @@ class WebCrawler:
         ssl_context.options &= ~ssl.OP_NO_TLSv1_1
         ssl_context.set_ciphers('DEFAULT@SECLEVEL=1')
         
-        # Create TCP connector with SSL context and connection limits
-        # Use settings for maximum concurrent connections to control resource usage
-        connector = aiohttp.TCPConnector(
-            ssl=ssl_context,
-            limit=settings.crawler_concurrent_requests,
-            limit_per_host=max(2, settings.crawler_concurrent_requests // 4)
-        )
+        # Configure SOCKS5 proxy if provided
+        connector = None
+        if settings.crawler_socks5_proxy:
+            try:
+                from aiohttp_socks import ProxyConnector
+                app_logger.info(f"Using SOCKS5 proxy: {settings.crawler_socks5_proxy}")
+                connector = ProxyConnector.from_url(
+                    settings.crawler_socks5_proxy,
+                    ssl=ssl_context,
+                    limit=settings.crawler_concurrent_requests,
+                    limit_per_host=max(2, settings.crawler_concurrent_requests // 4)
+                )
+            except ImportError:
+                app_logger.warning("aiohttp-socks not installed. Install with: pip install aiohttp-socks")
+                app_logger.warning("Falling back to direct connection without proxy")
+                connector = aiohttp.TCPConnector(
+                    ssl=ssl_context,
+                    limit=settings.crawler_concurrent_requests,
+                    limit_per_host=max(2, settings.crawler_concurrent_requests // 4)
+                )
+        else:
+            # Create TCP connector with SSL context and connection limits
+            # Use settings for maximum concurrent connections to control resource usage
+            connector = aiohttp.TCPConnector(
+                ssl=ssl_context,
+                limit=settings.crawler_concurrent_requests,
+                limit_per_host=max(2, settings.crawler_concurrent_requests // 4)
+            )
         
         self.session = aiohttp.ClientSession(
             timeout=timeout,
@@ -59,6 +81,32 @@ class WebCrawler:
         """Async context manager exit"""
         if self.session:
             await self.session.close()
+    
+    async def _load_approved_domains(self) -> Set[str]:
+        """
+        Load all approved domains from database
+        Returns a set of domain names that are allowed to be crawled
+        """
+        if self._approved_domains is not None:
+            return self._approved_domains
+        
+        approved = set()
+        try:
+            with get_db_context() as db:
+                domains = db.query(Domain).all()
+                for domain in domains:
+                    # Normalize domain name (remove www. prefix)
+                    normalized = domain.domain.lower().removeprefix('www.')
+                    approved.add(normalized)
+                    app_logger.debug(f"Approved domain: {normalized}")
+            
+            self._approved_domains = approved
+            app_logger.info(f"Loaded {len(approved)} approved domains for cross-domain crawling")
+        except Exception as e:
+            app_logger.error(f"Error loading approved domains: {e}")
+            self._approved_domains = set()
+        
+        return self._approved_domains
     
     async def crawl_domain(self, domain: str) -> Dict:
         """
@@ -82,6 +130,9 @@ class WebCrawler:
         # Ensure session exists
         if not self.session:
             await self.__aenter__()
+        
+        # Load approved domains for cross-domain crawling
+        await self._load_approved_domains()
         
         try:
             # Normalize domain to base URL
@@ -238,8 +289,10 @@ class WebCrawler:
                         text_content = await self._process_pdf(content_data, url, domain)
                         
                         if text_content:
+                            # Extract actual domain from URL (for cross-domain crawling)
+                            actual_domain = self._get_domain_from_url(url)
                             await self._save_page(
-                                domain=domain,
+                                domain=actual_domain,
                                 url=url,
                                 content=text_content,
                                 content_type="pdf",
@@ -261,9 +314,12 @@ class WebCrawler:
                         # Extract title
                         title = soup.title.string if soup.title else None
                         
+                        # Extract actual domain from URL (for cross-domain crawling)
+                        actual_domain = self._get_domain_from_url(url)
+                        
                         # Save page
                         await self._save_page(
-                            domain=domain,
+                            domain=actual_domain,
                             url=url,
                             content=text_content,
                             content_type="html",
@@ -310,8 +366,11 @@ class WebCrawler:
                                 text_content = self._extract_text_from_html(soup)
                                 title = soup.title.string if soup.title else None
                                 
+                                # Extract actual domain from URL (for cross-domain crawling)
+                                actual_domain = self._get_domain_from_url(http_url)
+                                
                                 await self._save_page(
-                                    domain=domain,
+                                    domain=actual_domain,
                                     url=http_url,
                                     content=text_content,
                                     content_type="html",
@@ -397,6 +456,7 @@ class WebCrawler:
         
         skipped_count = 0
         different_domain_count = 0
+        cross_domain_approved_count = 0
         
         for link in all_anchors:
             href = link['href']
@@ -409,17 +469,27 @@ class WebCrawler:
             # Convert relative URLs to absolute
             absolute_url = urljoin(base_url, href)
             
-            # Only include URLs from the same domain
+            # Include URLs from the same domain
             if self._is_same_domain(absolute_url, base_url):
                 # Remove fragments
                 absolute_url = absolute_url.split('#')[0]
                 links.add(absolute_url)
+            # Also include URLs from other approved domains in domains.csv
+            elif self._is_approved_domain(absolute_url):
+                absolute_url = absolute_url.split('#')[0]
+                links.add(absolute_url)
+                cross_domain_approved_count += 1
+                if cross_domain_approved_count <= 5:
+                    app_logger.info(f"Including cross-domain link from approved domain: {absolute_url}")
             else:
                 different_domain_count += 1
                 if different_domain_count <= 3:
                     app_logger.debug(f"Skipping different domain: {absolute_url} vs {base_url}")
         
-        app_logger.info(f"Link extraction from {base_url}: {len(all_anchors)} anchors found, {skipped_count} skipped (mailto/javascript/etc), {different_domain_count} different domain, {len(links)} same-domain links")
+        if cross_domain_approved_count > 0:
+            app_logger.info(f"Link extraction from {base_url}: {len(all_anchors)} anchors found, {skipped_count} skipped (mailto/javascript/etc), {cross_domain_approved_count} cross-domain approved links, {different_domain_count} different domain, {len(links)} total links")
+        else:
+            app_logger.info(f"Link extraction from {base_url}: {len(all_anchors)} anchors found, {skipped_count} skipped (mailto/javascript/etc), {different_domain_count} different domain, {len(links)} same-domain links")
         if len(links) > 0:
             app_logger.debug(f"Same-domain links: {list(links)[:5]}")
         
@@ -546,6 +616,30 @@ class WebCrawler:
         # - api.shop.bakkah.net ends with .bakkah.net ✓
         return url_domain == base_domain or url_domain.endswith('.' + base_domain)
     
+    def _is_approved_domain(self, url: str) -> bool:
+        """
+        Check if URL belongs to any approved domain from domains.csv
+        Returns True if the URL's domain matches any domain in the database
+        """
+        if self._approved_domains is None:
+            return False
+        
+        url_netloc = urlparse(url).netloc.lower()
+        url_domain = url_netloc.removeprefix('www.')
+        
+        # Check if URL's base domain is in approved list
+        for approved_domain in self._approved_domains:
+            # Check exact match or subdomain
+            if url_domain == approved_domain or url_domain.endswith('.' + approved_domain):
+                return True
+        
+        return False
+    
+    def _get_domain_from_url(self, url: str) -> str:
+        """Extract domain name from URL"""
+        netloc = urlparse(url).netloc.lower()
+        return netloc.removeprefix('www.')
+    
     async def _save_page(
         self,
         domain: str,
@@ -556,7 +650,10 @@ class WebCrawler:
         size_bytes: Optional[int] = None,
         page_number: Optional[int] = None
     ):
-        """Save crawled page to database"""
+        """Save crawled page to database and queue for embedding"""
+        page_id = None
+        needs_embedding = False
+        
         with get_db_context() as db:
             # Calculate checksum
             checksum = hashlib.md5(content.encode()).hexdigest()
@@ -573,6 +670,9 @@ class WebCrawler:
                     existing_page.checksum = checksum
                     existing_page.crawled_at = datetime.utcnow()
                     existing_page.size_bytes = size_bytes
+                    db.flush()  # Ensure ID is available
+                    page_id = existing_page.id
+                    needs_embedding = True
                     app_logger.debug(f"Updated page: {url}")
             else:
                 # Create new page
@@ -588,7 +688,18 @@ class WebCrawler:
                     crawled_at=datetime.utcnow()
                 )
                 db.add(page)
+                db.flush()  # Ensure ID is available
+                page_id = page.id
+                needs_embedding = True
                 app_logger.debug(f"Saved new page: {url}")
+        
+        # Queue page for async embedding (outside DB transaction)
+        if needs_embedding and page_id:
+            try:
+                from app.services.embedding_queue import embedding_queue
+                await embedding_queue.enqueue_page(page_id)
+            except Exception as e:
+                app_logger.warning(f"Failed to queue page for embedding: {e}")
     
     async def _log_crawl(self, log_data: Dict):
         """Log crawl activity"""

@@ -12,12 +12,12 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import time
 
-# Set resource limits BEFORE importing other modules
-os.environ.setdefault('OMP_NUM_THREADS', '2')
-os.environ.setdefault('OPENBLAS_NUM_THREADS', '2')
-os.environ.setdefault('MKL_NUM_THREADS', '2')
-os.environ.setdefault('VECLIB_MAXIMUM_THREADS', '2')
-os.environ.setdefault('NUMEXPR_NUM_THREADS', '2')
+# AUTO-DETECT and apply optimal resource configuration BEFORE importing other modules
+from app.utils.resource_detector import ResourceDetector
+optimal_config = ResourceDetector.get_optimal_config()
+ResourceDetector.apply_config(optimal_config)
+
+# Set additional environment variables
 os.environ.setdefault('TOKENIZERS_PARALLELISM', 'false')
 
 # Set Python recursion limit to prevent stack overflow
@@ -206,6 +206,8 @@ if __name__ == "__main__":
         settings.crawler_concurrent_requests = instance_cfg.get('crawler.concurrent_requests', 2)
         settings.crawler_download_delay = instance_cfg.get('crawler.download_delay', 1.0)
         settings.crawler_user_agent = instance_cfg.get('crawler.user_agent', 'WebCrawlerBot/1.0')
+        socks5_proxy = instance_cfg.get('crawler.socks5_proxy', '')
+        settings.crawler_socks5_proxy = socks5_proxy if socks5_proxy else None
         settings.enable_background_crawling = instance_cfg.get('crawler.enable_background', False)
         
         # Override embedding settings

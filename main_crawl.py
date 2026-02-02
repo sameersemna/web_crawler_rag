@@ -10,12 +10,12 @@ import signal
 import argparse
 from pathlib import Path
 
-# Set resource limits BEFORE importing other modules
-os.environ.setdefault('OMP_NUM_THREADS', '2')
-os.environ.setdefault('OPENBLAS_NUM_THREADS', '2')
-os.environ.setdefault('MKL_NUM_THREADS', '2')
-os.environ.setdefault('VECLIB_MAXIMUM_THREADS', '2')
-os.environ.setdefault('NUMEXPR_NUM_THREADS', '2')
+# AUTO-DETECT and apply optimal resource configuration BEFORE importing other modules
+from app.utils.resource_detector import ResourceDetector
+optimal_config = ResourceDetector.get_optimal_config()
+ResourceDetector.apply_config(optimal_config)
+
+# Set additional environment variables
 os.environ.setdefault('TOKENIZERS_PARALLELISM', 'false')
 
 # Set Python recursion limit to prevent stack overflow
@@ -26,6 +26,7 @@ from app.core.config_loader import load_instance_config
 from app.core.logging import app_logger, setup_logging
 from app.core.database import init_db, initialize_database
 from app.services.scheduler import crawler_scheduler
+from app.services.embedding_queue import embedding_queue
 
 
 # Parse command line arguments
@@ -48,6 +49,7 @@ class CrawlerService:
     
     def __init__(self):
         self.running = False
+        self.shutdown_event = None
         self._setup_signal_handlers()
     
     def _setup_signal_handlers(self):
@@ -58,10 +60,14 @@ class CrawlerService:
     def _signal_handler(self, signum, frame):
         """Handle shutdown signals"""
         app_logger.info(f"Received signal {signum}, initiating graceful shutdown...")
-        self.stop()
+        self.running = False
     
     def start(self):
         """Start the crawler service"""
+        asyncio.run(self._async_start())
+    
+    async def _async_start(self):
+        """Async initialization and startup"""
         instance_name = getattr(settings, 'instance_name', 'default')
         
         app_logger.info("=" * 60)
@@ -78,6 +84,9 @@ class CrawlerService:
         app_logger.info("Initializing database...")
         init_db()
         
+        # Start embedding queue (processes embeddings in parallel)
+        await embedding_queue.start()
+        
         # Start scheduler
         app_logger.info("Starting crawler scheduler...")
         crawler_scheduler.start()
@@ -90,32 +99,39 @@ class CrawlerService:
         app_logger.info(f"Crawl depth: {settings.max_crawl_depth}")
         app_logger.info(f"Domains CSV: {settings.domains_csv_path}")
         app_logger.info(f"Database: {settings.database_url}")
+        app_logger.info(f"Async embeddings: ENABLED (GPU+Network in parallel)")
         app_logger.info("Press Ctrl+C to stop")
         app_logger.info("=" * 60)
         
-        # Keep the service running
+        # Keep the service running - wait indefinitely
         try:
-            # Run the asyncio event loop
-            loop = asyncio.get_event_loop()
-            loop.run_forever()
-        except KeyboardInterrupt:
-            app_logger.info("Received keyboard interrupt")
+            while self.running:
+                await asyncio.sleep(0.5)  # Shorter sleep for faster shutdown response
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            app_logger.info("Received shutdown signal")
         finally:
-            self.stop()
+            app_logger.info("Shutting down services...")
+            await self._async_stop()
     
-    def stop(self):
-        """Stop the crawler service"""
-        if not self.running:
-            return
-        
+    async def _async_stop(self):
+        """Stop the crawler service (async)"""
         app_logger.info("Stopping Background Crawler Service...")
-        crawler_scheduler.stop()
-        self.running = False
-        app_logger.info("Background Crawler Service stopped")
         
-        # Stop the event loop
-        loop = asyncio.get_event_loop()
-        loop.stop()
+        self.running = False
+        
+        # Stop embedding queue first (process remaining items)
+        try:
+            await asyncio.wait_for(embedding_queue.stop(), timeout=30.0)
+        except asyncio.TimeoutError:
+            app_logger.warning("Embedding queue stop timed out after 30s")
+        
+        # Stop scheduler
+        try:
+            crawler_scheduler.stop()
+        except Exception as e:
+            app_logger.error(f"Error stopping scheduler: {e}")
+        
+        app_logger.info("Background Crawler Service stopped")
 
 
 def main():
@@ -161,6 +177,8 @@ def main():
         settings.crawler_concurrent_requests = instance_cfg.get('crawler.concurrent_requests', 2)
         settings.crawler_download_delay = instance_cfg.get('crawler.download_delay', 1.0)
         settings.crawler_user_agent = instance_cfg.get('crawler.user_agent', 'WebCrawlerBot/1.0')
+        socks5_proxy = instance_cfg.get('crawler.socks5_proxy', '')
+        settings.crawler_socks5_proxy = socks5_proxy if socks5_proxy else None
         settings.enable_background_crawling = instance_cfg.get('crawler.enable_background', False)
         settings.crawl_interval_hours = 24  # Default to 24 hours
         

@@ -2,6 +2,7 @@
 Background Scheduler Service
 Handles periodic crawling of domains
 """
+import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from datetime import datetime, timedelta
@@ -161,70 +162,98 @@ class CrawlerScheduler:
                 app_logger.info("No domains need crawling at this time")
                 return
             
-            app_logger.info(f"Crawling {len(domains_to_crawl)} domains")
+            app_logger.info(f"Starting parallel crawl of {len(domains_to_crawl)} domains")
             
-            # Crawl each domain
-            async with WebCrawler() as crawler:
-                for domain_data in domains_to_crawl:
-                    try:
-                        # Update status
-                        with get_db_context() as db:
-                            db_domain = db.query(Domain).filter(
-                                Domain.id == domain_data['id']
-                            ).first()
-                            db_domain.status = 'crawling'
-                        
-                        # Crawl domain
-                        stats = await crawler.crawl_domain(domain_data['domain'])
-                        
-                        # Update domain record
-                        with get_db_context() as db:
-                            db_domain = db.query(Domain).filter(
-                                Domain.id == domain_data['id']
-                            ).first()
-                            
-                            if 'error' in stats:
-                                db_domain.status = 'failed'
-                                db_domain.last_error = stats['error']
-                                db_domain.error_count += 1
-                            else:
-                                db_domain.status = 'completed'
-                                db_domain.pages_crawled = stats['pages_crawled']
-                                db_domain.last_crawl_at = datetime.utcnow()
-                                db_domain.error_count = 0
-                                db_domain.last_error = None
-                            
-                            # Set next crawl time
-                            db_domain.next_crawl_at = datetime.utcnow() + timedelta(
-                                hours=domain_data['crawl_interval_hours']
-                            )
-                            
-                            if not db_domain.first_crawl_at:
-                                db_domain.first_crawl_at = datetime.utcnow()
-                        
-                        # Update vector database
-                        if stats.get('pages_crawled', 0) > 0:
-                            await self._update_vector_db(domain_data['domain'])
-                    
-                    except Exception as e:
-                        app_logger.error(f"Error crawling domain {domain_data['domain']}: {e}")
-                        
-                        # Update error in database
-                        with get_db_context() as db:
-                            db_domain = db.query(Domain).filter(
-                                Domain.id == domain_data['id']
-                            ).first()
-                            db_domain.status = 'failed'
-                            db_domain.last_error = str(e)
-                            db_domain.error_count += 1
-                            db_domain.next_crawl_at = datetime.utcnow() + timedelta(
-                                hours=domain_data['crawl_interval_hours']
-                            )
-            
-            app_logger.info("Periodic crawl completed")
+            # Crawl domains in parallel
+            await self._crawl_domains_parallel(domains_to_crawl)
         
         except Exception as e:
             app_logger.error(f"Error in periodic crawl: {e}")
+    
+    async def _crawl_domains_parallel(self, domains_to_crawl: list, max_concurrent: int = 5):
+        """
+        Crawl multiple domains in parallel for better resource utilization
+        
+        Args:
+            domains_to_crawl: List of domain data dicts
+            max_concurrent: Maximum number of domains to crawl simultaneously
+        """
+        async def crawl_single_domain(domain_data: dict):
+            """Crawl a single domain with error handling"""
+            try:
+                # Update status
+                with get_db_context() as db:
+                    db_domain = db.query(Domain).filter(
+                        Domain.id == domain_data['id']
+                    ).first()
+                    db_domain.status = 'crawling'
+                
+                app_logger.info(f"[PARALLEL] Starting crawl: {domain_data['domain']}")
+                
+                # Crawl domain (each crawler has its own session)
+                async with WebCrawler() as crawler:
+                    stats = await crawler.crawl_domain(domain_data['domain'])
+                
+                # Update domain record
+                with get_db_context() as db:
+                    db_domain = db.query(Domain).filter(
+                        Domain.id == domain_data['id']
+                    ).first()
+                    
+                    if stats.get('pages_failed', 0) > 0:
+                        db_domain.status = 'completed_with_errors'
+                    else:
+                        db_domain.status = 'completed'
+                    
+                    db_domain.pages_crawled = stats['pages_crawled']
+                    db_domain.last_crawl_at = datetime.utcnow()
+                    db_domain.error_count = 0
+                    db_domain.last_error = None
+                    
+                    # Set next crawl time
+                    db_domain.next_crawl_at = datetime.utcnow() + timedelta(
+                        hours=domain_data['crawl_interval_hours']
+                    )
+                    
+                    if not db_domain.first_crawl_at:
+                        db_domain.first_crawl_at = datetime.utcnow()
+                
+                app_logger.info(
+                    f"[PARALLEL] Completed {domain_data['domain']}: "
+                    f"{stats['pages_crawled']} pages crawled"
+                )
+                
+                # Note: Embeddings are processed async during crawling
+                if stats.get('pages_crawled', 0) > 0:
+                    app_logger.debug(f"Embeddings for {domain_data['domain']} are being processed in background")
+            
+            except Exception as e:
+                app_logger.error(f"[PARALLEL] Error crawling {domain_data['domain']}: {e}")
+                
+                # Update error in database
+                with get_db_context() as db:
+                    db_domain = db.query(Domain).filter(
+                        Domain.id == domain_data['id']
+                    ).first()
+                    db_domain.status = 'failed'
+                    db_domain.last_error = str(e)
+                    db_domain.error_count += 1
+                    db_domain.next_crawl_at = datetime.utcnow() + timedelta(
+                        hours=domain_data['crawl_interval_hours']
+                    )
+        
+        # Process domains in batches to limit concurrency
+        for i in range(0, len(domains_to_crawl), max_concurrent):
+            batch = domains_to_crawl[i:i + max_concurrent]
+            app_logger.info(f"[PARALLEL] Processing batch of {len(batch)} domains")
+            
+            # Crawl batch concurrently
+            tasks = [crawl_single_domain(domain_data) for domain_data in batch]
+            await asyncio.gather(*tasks, return_exceptions=True)
+            
+            app_logger.info(f"[PARALLEL] Batch completed ({i + len(batch)}/{len(domains_to_crawl)} total)")
+        
+        app_logger.info(f"[PARALLEL] All {len(domains_to_crawl)} domains processed")
     
     async def _update_vector_db(self, domain: str):
         """Update vector database with new/updated pages"""
