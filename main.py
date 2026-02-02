@@ -173,7 +173,17 @@ if __name__ == "__main__":
         # Load YAML configuration
         instance_cfg = load_instance_config(args.config)
         
-        # Override settings with instance config
+        # Set environment variables so worker processes inherit them
+        os.environ['INSTANCE_NAME'] = instance_cfg.instance_name
+        os.environ['INSTANCE_DESCRIPTION'] = instance_cfg.instance_description
+        os.environ['API_HOST'] = instance_cfg.host
+        os.environ['API_PORT'] = str(instance_cfg.port)
+        os.environ['DATABASE_URL'] = f"sqlite:///{instance_cfg.db_path}"
+        os.environ['VECTOR_DB_PATH'] = str(instance_cfg.vector_db_path)
+        os.environ['LOG_FILE_PATH'] = str(instance_cfg.logs_dir / "crawler.log")
+        os.environ['DOMAINS_CSV_PATH'] = str(instance_cfg.domains_file)
+        
+        # Override settings with instance config (for main process)
         settings.instance_name = instance_cfg.instance_name
         settings.instance_description = instance_cfg.instance_description
         settings.api_host = instance_cfg.host

@@ -30,7 +30,7 @@ ENV/
 # Environment Variables
 .env
 .env.local
-.yaml
+*.yaml
 
 # IDEs
 .vscode/

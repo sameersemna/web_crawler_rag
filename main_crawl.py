@@ -1,11 +1,14 @@
 """
-Background Crawler Service
+Background Crawler Service with Multi-Instance Support
 Runs automatic scheduled crawling independently from the API server
+Usage: python main_crawl.py [config_file.yaml]
 """
 import os
 import sys
 import asyncio
 import signal
+import argparse
+from pathlib import Path
 
 # Set resource limits BEFORE importing other modules
 os.environ.setdefault('OMP_NUM_THREADS', '2')
@@ -19,9 +22,25 @@ os.environ.setdefault('TOKENIZERS_PARALLELISM', 'false')
 sys.setrecursionlimit(1000)
 
 from app.core.config import settings
+from app.core.config_loader import load_instance_config
 from app.core.logging import app_logger
 from app.core.database import init_db
 from app.services.scheduler import crawler_scheduler
+
+
+# Parse command line arguments
+def parse_args():
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(
+        description='Background Crawler Service with multi-instance support'
+    )
+    parser.add_argument(
+        'config',
+        nargs='?',
+        default=None,
+        help='YAML configuration file (e.g., islam.yaml, law.yaml)'
+    )
+    return parser.parse_args()
 
 
 class CrawlerService:
@@ -43,13 +62,15 @@ class CrawlerService:
     
     def start(self):
         """Start the crawler service"""
+        instance_name = getattr(settings, 'instance_name', 'default')
+        
         app_logger.info("=" * 60)
-        app_logger.info("Starting Background Crawler Service")
+        app_logger.info(f"Starting Background Crawler Service - Instance: {instance_name}")
         app_logger.info("=" * 60)
         
         if not settings.enable_background_crawling:
-            app_logger.warning("Background crawling is DISABLED in .env")
-            app_logger.warning("Set ENABLE_BACKGROUND_CRAWLING=True to enable")
+            app_logger.warning("Background crawling is DISABLED")
+            app_logger.warning("Set 'crawler.enable_background: true' in YAML config")
             app_logger.info("Service will exit now.")
             return
         
@@ -64,9 +85,11 @@ class CrawlerService:
         self.running = True
         app_logger.info("=" * 60)
         app_logger.info("Background Crawler Service is now running")
+        app_logger.info(f"Instance: {instance_name}")
         app_logger.info(f"Crawl interval: {settings.crawl_interval_hours} hours")
         app_logger.info(f"Crawl depth: {settings.max_crawl_depth}")
         app_logger.info(f"Domains CSV: {settings.domains_csv_path}")
+        app_logger.info(f"Database: {settings.database_url}")
         app_logger.info("Press Ctrl+C to stop")
         app_logger.info("=" * 60)
         
@@ -97,6 +120,81 @@ class CrawlerService:
 
 def main():
     """Main entry point"""
+    # Parse command line arguments
+    args = parse_args()
+    
+    # Load instance configuration if provided
+    if args.config:
+        config_path = Path(args.config)
+        if not config_path.exists():
+            print(f"ERROR: Configuration file not found: {args.config}")
+            print("\nAvailable configuration files:")
+            for yaml_file in Path('.').glob('*.yaml'):
+                print(f"  - {yaml_file.name}")
+            sys.exit(1)
+        
+        # Load YAML configuration
+        instance_cfg = load_instance_config(args.config)
+        
+        # Set environment variables
+        os.environ['INSTANCE_NAME'] = instance_cfg.instance_name
+        os.environ['INSTANCE_DESCRIPTION'] = instance_cfg.instance_description
+        os.environ['DATABASE_URL'] = f"sqlite:///{instance_cfg.db_path}"
+        os.environ['VECTOR_DB_PATH'] = str(instance_cfg.vector_db_path)
+        os.environ['LOG_FILE_PATH'] = str(instance_cfg.logs_dir / "crawler.log")
+        os.environ['DOMAINS_CSV_PATH'] = str(instance_cfg.domains_file)
+        
+        # Override settings with instance config
+        settings.instance_name = instance_cfg.instance_name
+        settings.instance_description = instance_cfg.instance_description
+        settings.database_url = f"sqlite:///{instance_cfg.db_path}"
+        settings.vector_db_path = str(instance_cfg.vector_db_path)
+        settings.log_file_path = str(instance_cfg.logs_dir / "crawler.log")
+        settings.domains_csv_path = str(instance_cfg.domains_file)
+        
+        # Override crawler settings
+        settings.max_crawl_depth = instance_cfg.get('crawler.max_depth', 5)
+        settings.crawler_concurrent_requests = instance_cfg.get('crawler.concurrent_requests', 2)
+        settings.crawler_download_delay = instance_cfg.get('crawler.download_delay', 1.0)
+        settings.crawler_user_agent = instance_cfg.get('crawler.user_agent', 'WebCrawlerBot/1.0')
+        settings.enable_background_crawling = instance_cfg.get('crawler.enable_background', False)
+        settings.crawl_interval_hours = 24  # Default to 24 hours
+        
+        # Parse schedule if provided
+        schedule = instance_cfg.get('crawler.schedule')
+        if schedule:
+            app_logger.info(f"Crawl schedule: {schedule}")
+        
+        # Override embedding settings
+        settings.embedding_model = instance_cfg.get('embeddings.model', 'sentence-transformers/all-MiniLM-L6-v2')
+        settings.chunk_size = instance_cfg.get('embeddings.chunk_size', 500)
+        settings.chunk_overlap = instance_cfg.get('embeddings.chunk_overlap', 100)
+        settings.max_embedding_batch_size = instance_cfg.get('embeddings.batch_size', 32)
+        settings.chromadb_max_batch_size = instance_cfg.get('embeddings.chromadb_batch_size', 100)
+        
+        # Override resource settings
+        os.environ['OMP_NUM_THREADS'] = str(instance_cfg.get('resources.num_threads', 4))
+        os.environ['OPENBLAS_NUM_THREADS'] = str(instance_cfg.get('resources.num_threads', 4))
+        os.environ['MKL_NUM_THREADS'] = str(instance_cfg.get('resources.num_threads', 4))
+        settings.enable_ocr = instance_cfg.get('resources.enable_ocr', False)
+        
+        print(f"\n{'='*60}")
+        print(f"Starting Background Crawler - Instance: {instance_cfg.instance_name}")
+        print(f"{'='*60}")
+        print(f"Description: {instance_cfg.instance_description}")
+        print(f"Data directory: {instance_cfg.data_dir}")
+        print(f"Database: {instance_cfg.db_path}")
+        print(f"Domains file: {instance_cfg.domains_file}")
+        print(f"Crawl depth: {settings.max_crawl_depth}")
+        print(f"Background crawling: {settings.enable_background_crawling}")
+        print(f"{'='*60}\n")
+    else:
+        print("\nNo configuration file specified. Using default settings.")
+        print("Usage: python main_crawl.py <config_file.yaml>")
+        print("\nExample:")
+        print("  python main_crawl.py islam.yaml")
+        print("  python main_crawl.py law.yaml\n")
+    
     service = CrawlerService()
     service.start()
 
