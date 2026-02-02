@@ -170,12 +170,19 @@ class VectorDatabase:
                     with get_db_context() as db:
                         for i, chunk_id in enumerate(ids):
                             chunk_idx = batch_start + i
-                            # Check if vector already exists
+                            
+                            # Check if vector_id already exists (unique constraint)
                             existing = db.query(VectorEmbedding).filter(
                                 VectorEmbedding.vector_id == chunk_id
                             ).first()
                             
-                            if not existing:
+                            if existing:
+                                # Update existing record
+                                existing.page_id = page.id
+                                existing.chunk_index = chunk_idx
+                                existing.chunk_text = chunk_batch[i]
+                            else:
+                                # Insert new record
                                 vector_embedding = VectorEmbedding(
                                     page_id=page.id,
                                     chunk_index=chunk_idx,
@@ -183,13 +190,13 @@ class VectorDatabase:
                                     vector_id=chunk_id
                                 )
                                 db.add(vector_embedding)
-                            else:
-                                # Update existing embedding if content changed
-                                existing.chunk_text = chunk_batch[i]
-                                existing.page_id = page.id
-                                existing.chunk_index = chunk_idx
                         
-                        db.commit()
+                        try:
+                            db.commit()
+                        except Exception as commit_error:
+                            app_logger.warning(f"Commit failed for page {page.url}, rolling back: {commit_error}")
+                            db.rollback()
+                            raise
                 
                 total_chunks += len(chunks)
                 pages_processed += 1

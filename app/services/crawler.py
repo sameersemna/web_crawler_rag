@@ -108,22 +108,24 @@ class WebCrawler:
         
         return self._approved_domains
     
-    async def crawl_domain(self, domain: str) -> Dict:
+    async def crawl_domain(self, domain: str, force_recrawl: bool = False) -> Dict:
         """
         Crawl a complete domain
         
         Args:
             domain: Domain name to crawl
+            force_recrawl: If True, recrawl even if pages already exist in database
             
         Returns:
             Dictionary with crawl statistics
         """
-        app_logger.info(f"Starting crawl for domain: {domain}")
+        app_logger.info(f"Starting crawl for domain: {domain} (force_recrawl={force_recrawl})")
         
         stats = {
             "domain": domain,
             "pages_crawled": 0,
             "pages_failed": 0,
+            "pages_skipped": 0,
             "start_time": datetime.utcnow(),
         }
         
@@ -152,13 +154,19 @@ class WebCrawler:
             if sitemap_urls:
                 urls_to_crawl.update(sitemap_urls)
             
+            app_logger.info(
+                f"Starting crawl with {len(urls_to_crawl)} initial URLs "
+                f"(base + sitemap) for {domain}"
+            )
+            
             # Crawl URLs with depth limit
             await self._crawl_urls(
                 urls_to_crawl=urls_to_crawl,
                 base_url=base_url,
                 domain=domain,
                 stats=stats,
-                max_depth=settings.max_crawl_depth
+                max_depth=settings.max_crawl_depth,
+                force_recrawl=force_recrawl
             )
             
             stats["end_time"] = datetime.utcnow()
@@ -167,6 +175,7 @@ class WebCrawler:
             app_logger.info(
                 f"Completed crawl for {domain}: "
                 f"{stats['pages_crawled']} pages crawled, "
+                f"{stats['pages_skipped']} skipped, "
                 f"{stats['pages_failed']} failed"
             )
             
@@ -185,7 +194,8 @@ class WebCrawler:
         domain: str,
         stats: Dict,
         max_depth: int,
-        current_depth: int = 0
+        current_depth: int = 0,
+        force_recrawl: bool = False
     ):
         """Recursively crawl URLs"""
         
@@ -201,7 +211,7 @@ class WebCrawler:
             
             # Process batch concurrently
             tasks = [
-                self._crawl_single_url(url, base_url, domain, stats)
+                self._crawl_single_url(url, base_url, domain, stats, current_depth, max_depth, force_recrawl)
                 for url in batch
             ]
             results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -231,7 +241,8 @@ class WebCrawler:
                     domain=domain,
                     stats=stats,
                     max_depth=max_depth,
-                    current_depth=current_depth + 1
+                    current_depth=current_depth + 1,
+                    force_recrawl=force_recrawl
                 )
             elif current_depth >= max_depth - 1:
                 app_logger.info(f"Reached max depth {max_depth}, stopping crawl")
@@ -241,18 +252,36 @@ class WebCrawler:
         url: str,
         base_url: str,
         domain: str,
-        stats: Dict
+        stats: Dict,
+        current_depth: int,
+        max_depth: int,
+        force_recrawl: bool = False
     ) -> Set[str]:
         """
-        Crawl a single URL
+        Crawl a single URL and extract links
         
         Returns:
-            Set of new URLs found on the page
+            Set of discovered URLs for next crawl level
         """
+        discovered_urls = set()
+        
+        # Check if already visited in this session
         if url in self.visited_urls:
-            return set()
+            return discovered_urls
         
         self.visited_urls.add(url)
+        
+        # Check if URL already crawled (unless force_recrawl)
+        if not force_recrawl:
+            already_crawled = await self._check_if_crawled(url)
+            if already_crawled:
+                stats["pages_skipped"] = stats.get("pages_skipped", 0) + 1
+                if stats["pages_skipped"] == 1 or stats["pages_skipped"] % 10 == 0:
+                    app_logger.info(f"Skipping already crawled pages: {stats['pages_skipped']} skipped so far")
+                else:
+                    app_logger.debug(f"Skipping already crawled: {url}")
+                return discovered_urls
+        
         new_urls = set()
         log_entry_data = {
             "timestamp": datetime.utcnow(),
@@ -639,6 +668,34 @@ class WebCrawler:
         """Extract domain name from URL"""
         netloc = urlparse(url).netloc.lower()
         return netloc.removeprefix('www.')
+    
+    async def _check_if_crawled(self, url: str) -> bool:
+        """
+        Check if a URL has already been crawled and is in the database
+        
+        Args:
+            url: URL to check
+            
+        Returns:
+            True if URL exists in database, False otherwise
+        """
+        try:
+            from app.core.database import SessionLocal
+            if SessionLocal is None:
+                return False
+            
+            # Use a separate session without auto-commit for read-only check
+            db = SessionLocal()
+            try:
+                existing = db.query(CrawledPage).filter(
+                    CrawledPage.url == url
+                ).first()
+                return existing is not None
+            finally:
+                db.close()
+        except Exception as e:
+            app_logger.warning(f"Error checking if URL crawled: {e}")
+            return False
     
     async def _save_page(
         self,

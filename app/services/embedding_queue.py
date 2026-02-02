@@ -144,37 +144,55 @@ class EmbeddingQueue:
         Args:
             page_ids: List of CrawledPage IDs to process
         """
-        try:
-            # Fetch pages from database
-            with get_db_context() as db:
-                pages = db.query(CrawledPage).filter(
-                    CrawledPage.id.in_(page_ids)
-                ).all()
-                
-                if not pages:
-                    return
-                
-                # Generate embeddings (runs in thread pool, non-blocking)
-                await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    vector_db.add_documents,
-                    pages
-                )
-                
-                # Mark as processed
-                for page_id in page_ids:
-                    self._processed_ids.add(page_id)
-                
-                self.processed_count += len(pages)
-                
-                app_logger.info(
-                    f"✓ Embedded {len(pages)} pages "
-                    f"(Total: {self.processed_count}, Queue: {self.queue.qsize()})"
-                )
+        max_retries = 3
+        retry_delay = 1.0
         
-        except Exception as e:
-            self.failed_count += len(page_ids)
-            app_logger.error(f"Failed to process embedding batch: {e}", exc_info=True)
+        for attempt in range(max_retries):
+            try:
+                # Fetch pages from database
+                with get_db_context() as db:
+                    pages = db.query(CrawledPage).filter(
+                        CrawledPage.id.in_(page_ids)
+                    ).all()
+                    
+                    if not pages:
+                        return
+                    
+                    # Generate embeddings (runs in thread pool, non-blocking)
+                    await asyncio.get_event_loop().run_in_executor(
+                        None,
+                        vector_db.add_documents,
+                        pages
+                    )
+                    
+                    # Mark as processed
+                    for page_id in page_ids:
+                        self._processed_ids.add(page_id)
+                    
+                    self.processed_count += len(pages)
+                    
+                    app_logger.info(
+                        f"✓ Embedded {len(pages)} pages "
+                        f"(Total: {self.processed_count}, Queue: {self.queue.qsize()})"
+                    )
+                    
+                    # Success - break retry loop
+                    break
+            
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    app_logger.warning(
+                        f"Embedding batch failed (attempt {attempt + 1}/{max_retries}): {e}. "
+                        f"Retrying in {retry_delay}s..."
+                    )
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    self.failed_count += len(page_ids)
+                    app_logger.error(
+                        f"Failed to process embedding batch after {max_retries} attempts: {e}",
+                        exc_info=True
+                    )
     
     def get_stats(self) -> dict:
         """Get queue statistics"""

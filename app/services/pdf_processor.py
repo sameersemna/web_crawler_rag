@@ -3,6 +3,7 @@ PDF Processor Service
 Handles PDF text extraction with OCR support for scanned documents
 """
 import io
+import warnings
 from typing import Optional
 import PyPDF2
 import pdfplumber
@@ -10,6 +11,9 @@ from pdf2image import convert_from_bytes
 import pytesseract
 from app.core.config import settings
 from app.core.logging import app_logger
+
+# Suppress PyPDF2 warnings about unsupported encodings
+warnings.filterwarnings('ignore', message='.*Advanced encoding.*')
 
 
 class PDFProcessor:

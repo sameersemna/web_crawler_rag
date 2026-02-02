@@ -52,8 +52,11 @@ async def lifespan(app: FastAPI):
     instance_name = getattr(settings, 'instance_name', 'default')
     app_logger.info(f"Starting Web Crawler RAG API - Instance: {instance_name}")
     
-    # Initialize database
-    init_db()
+    # Initialize database only if configured
+    if settings.database_url:
+        init_db()
+    else:
+        app_logger.warning("Database not configured - skipping initialization")
     
     app_logger.info("Application startup complete")
     

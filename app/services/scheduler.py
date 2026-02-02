@@ -82,6 +82,23 @@ class CrawlerScheduler:
         """Initial setup - load domains and start first crawl"""
         app_logger.info("Running initial setup")
         await self._load_domains_from_csv()
+        
+        # Reset next_crawl_at for all enabled domains on startup
+        # This ensures crawling starts immediately instead of waiting for scheduled time
+        with get_db_context() as db:
+            enabled_domains = db.query(Domain).filter(
+                Domain.enabled == True
+            ).all()
+            
+            reset_count = 0
+            for domain in enabled_domains:
+                # Reset to now so they get crawled immediately
+                domain.next_crawl_at = datetime.utcnow()
+                reset_count += 1
+            
+            if reset_count > 0:
+                app_logger.info(f"Reset {reset_count} domains to crawl immediately on startup")
+        
         await self._periodic_crawl()
     
     async def _load_domains_from_csv(self):
@@ -191,8 +208,12 @@ class CrawlerScheduler:
                 app_logger.info(f"[PARALLEL] Starting crawl: {domain_data['domain']}")
                 
                 # Crawl domain (each crawler has its own session)
+                # force_recrawl=False by default - skip already crawled pages
                 async with WebCrawler() as crawler:
-                    stats = await crawler.crawl_domain(domain_data['domain'])
+                    stats = await crawler.crawl_domain(
+                        domain_data['domain'],
+                        force_recrawl=domain_data.get('force_recrawl', False)
+                    )
                 
                 # Update domain record
                 with get_db_context() as db:
@@ -200,27 +221,47 @@ class CrawlerScheduler:
                         Domain.id == domain_data['id']
                     ).first()
                     
+                    pages_crawled = stats.get('pages_crawled', 0)
+                    pages_skipped = stats.get('pages_skipped', 0)
+                    
                     if stats.get('pages_failed', 0) > 0:
                         db_domain.status = 'completed_with_errors'
                     else:
                         db_domain.status = 'completed'
                     
-                    db_domain.pages_crawled = stats['pages_crawled']
+                    db_domain.pages_crawled = pages_crawled
                     db_domain.last_crawl_at = datetime.utcnow()
                     db_domain.error_count = 0
                     db_domain.last_error = None
                     
-                    # Set next crawl time
-                    db_domain.next_crawl_at = datetime.utcnow() + timedelta(
-                        hours=domain_data['crawl_interval_hours']
-                    )
+                    # Set next crawl time based on results
+                    # If we found and crawled new pages, schedule next crawl for later
+                    # If all pages were skipped (0 crawled), try again sooner to find new pages
+                    if pages_crawled > 0:
+                        # Found new pages - normal interval
+                        db_domain.next_crawl_at = datetime.utcnow() + timedelta(
+                            hours=domain_data['crawl_interval_hours']
+                        )
+                        app_logger.info(
+                            f"Next crawl for {domain_data['domain']} scheduled in "
+                            f"{domain_data['crawl_interval_hours']} hours"
+                        )
+                    else:
+                        # No new pages found - either fully crawled or need to discover more
+                        # Schedule next check in 1 hour to continue discovering new pages
+                        db_domain.next_crawl_at = datetime.utcnow() + timedelta(hours=1)
+                        app_logger.info(
+                            f"No new pages found for {domain_data['domain']}, "
+                            f"will check again in 1 hour for new content"
+                        )
                     
                     if not db_domain.first_crawl_at:
                         db_domain.first_crawl_at = datetime.utcnow()
                 
                 app_logger.info(
                     f"[PARALLEL] Completed {domain_data['domain']}: "
-                    f"{stats['pages_crawled']} pages crawled"
+                    f"{stats['pages_crawled']} crawled, "
+                    f"{stats.get('pages_skipped', 0)} skipped"
                 )
                 
                 # Note: Embeddings are processed async during crawling

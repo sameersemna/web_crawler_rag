@@ -389,8 +389,8 @@ async def _background_crawl(domains: List[str], force_recrawl: bool):
     try:
         async with WebCrawler() as crawler:
             for domain in domains:
-                app_logger.info(f"Background crawl started for: {domain}")
-                stats = await crawler.crawl_domain(domain)
+                app_logger.info(f"Background crawl started for: {domain} (force_recrawl={force_recrawl})")
+                stats = await crawler.crawl_domain(domain, force_recrawl=force_recrawl)
                 
                 app_logger.info(f"Crawl completed with stats: {stats.get('pages_crawled', 0)} pages crawled")
                 
